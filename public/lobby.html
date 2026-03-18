@@ -428,6 +428,17 @@
   }
   .player-entry.self { color: #0ff; }
   .player-entry.self::before { background: #0ff; box-shadow: 0 0 6px #0ff; }
+  .player-entry.in-game { color: #f80; }
+  .player-entry.in-game::before { background: #f80; box-shadow: 0 0 6px #f80; }
+  .in-game-badge {
+    font-size: 8px;
+    color: #f80;
+    letter-spacing: 1px;
+    padding: 1px 5px;
+    border: 1px solid rgba(255, 136, 0, 0.3);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
 
   .connection-status {
     font-size: 10px; letter-spacing: 2px; padding: 8px 16px;
@@ -560,14 +571,25 @@ socket.on('lobby:players', (players) => {
   playerCount.textContent = players.length;
   playerListEl.innerHTML = '';
   players.sort((a, b) => {
-    if (a === username) return -1;
-    if (b === username) return 1;
-    return a.localeCompare(b);
+    if (a.username === username) return -1;
+    if (b.username === username) return 1;
+    // Lobby players before in-game players
+    if (a.inGame !== b.inGame) return a.inGame ? 1 : -1;
+    return a.username.localeCompare(b.username);
   });
-  for (const name of players) {
+  for (const p of players) {
     const el = document.createElement('div');
-    el.className = 'player-entry' + (name === username ? ' self' : '');
-    el.textContent = name;
+    let cls = 'player-entry';
+    if (p.username === username) cls += ' self';
+    if (p.inGame) cls += ' in-game';
+    el.className = cls;
+    el.textContent = p.username;
+    if (p.inGame) {
+      const badge = document.createElement('span');
+      badge.className = 'in-game-badge';
+      badge.textContent = 'IN GAME';
+      el.appendChild(badge);
+    }
     playerListEl.appendChild(el);
   }
 });

@@ -72,6 +72,58 @@
     border-color: #f0a;
     box-shadow: 0 0 15px rgba(255, 0, 170, 0.3);
   }
+  /* Pause screen options controls */
+  #pause-screen .pause-options {
+    margin-top: 24px;
+    margin-bottom: 8px;
+    width: 280px;
+  }
+  #pause-screen .pause-options .opt-group {
+    margin-bottom: 14px;
+  }
+  #pause-screen .pause-options .opt-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #0f0;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  #pause-screen .pause-options .opt-val {
+    color: #0ff;
+    min-width: 36px;
+    text-align: right;
+  }
+  #pause-screen input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: #222;
+    border-radius: 2px;
+    outline: none;
+  }
+  #pause-screen input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #0ff;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(0,255,255,0.6);
+  }
+  #pause-screen input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #0ff;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 8px rgba(0,255,255,0.6);
+  }
   @keyframes pulse-glow {
     0%, 100% { opacity: 0.5; }
     50% { opacity: 1; }
@@ -161,6 +213,7 @@
     <div class="controls-info">
       <span>W A S D</span> — Move &nbsp;&nbsp; <span>MOUSE</span> — Aim<br>
       <span>LEFT CLICK</span> — Fire &nbsp;&nbsp; <span>SHIFT</span> — Sprint<br>
+      <span>SPACE</span> — Jump &nbsp;&nbsp; <span>C</span> — Crouch<br>
       <span>E</span> — Interact &nbsp;&nbsp; <span>TAB</span> — Map &nbsp;&nbsp; <span>ESC</span> — Pause
     </div>
     <a href="/menu.html" class="back-link">[ RETURN TO MENU ]</a>
@@ -168,6 +221,22 @@
   <div id="pause-screen" style="display:none">
     <div class="pause-text">PAUSED</div>
     <div class="pause-sub">Click to resume</div>
+    <div class="pause-options">
+      <div class="opt-group">
+        <div class="opt-label">
+          <span>Master Volume</span>
+          <span class="opt-val" id="sp-vol-value">100%</span>
+        </div>
+        <input type="range" id="sp-opt-volume" min="0" max="100" value="100">
+      </div>
+      <div class="opt-group">
+        <div class="opt-label">
+          <span>Mouse Sensitivity</span>
+          <span class="opt-val" id="sp-sens-value">100%</span>
+        </div>
+        <input type="range" id="sp-opt-sensitivity" min="10" max="300" value="100">
+      </div>
+    </div>
     <div class="pause-hint"><span>ESC</span> to pause &nbsp;·&nbsp; Click to resume</div>
     <a href="/menu.html" class="menu-link">Return to Menu</a>
   </div>
@@ -242,26 +311,28 @@ const MAP_W = MAP[0].length;
 
 // NPC definitions
 const NPCS = [
-  { x: 5.5, y: 5.5, type: 'drone', alive: true, health: 100, frame: 0 },
-  { x: 11.5, y: 5.5, type: 'sentinel', alive: true, health: 150, frame: 0 },
-  { x: 18.5, y: 8.5, type: 'drone', alive: true, health: 100, frame: 0 },
-  { x: 11.5, y: 11.5, type: 'heavy', alive: true, health: 250, frame: 0 },
-  { x: 5.5, y: 15.5, type: 'drone', alive: true, health: 100, frame: 0 },
-  { x: 18.5, y: 15.5, type: 'sentinel', alive: true, health: 150, frame: 0 },
-  { x: 11.5, y: 19.5, type: 'heavy', alive: true, health: 250, frame: 0 },
-  { x: 4.5, y: 11.5, type: 'drone', alive: true, health: 100, frame: 0 },
+  { x: 5.5, y: 5.5, type: 'drone', alive: true, health: 100, frame: 0, angle: Math.PI * 0.75 },
+  { x: 11.5, y: 5.5, type: 'sentinel', alive: true, health: 150, frame: 0, angle: Math.PI },
+  { x: 18.5, y: 8.5, type: 'drone', alive: true, health: 100, frame: 0, angle: -Math.PI / 2 },
+  { x: 11.5, y: 11.5, type: 'heavy', alive: true, health: 250, frame: 0, angle: 0 },
+  { x: 5.5, y: 15.5, type: 'drone', alive: true, health: 100, frame: 0, angle: Math.PI / 4 },
+  { x: 18.5, y: 15.5, type: 'sentinel', alive: true, health: 150, frame: 0, angle: -Math.PI * 0.75 },
+  { x: 11.5, y: 19.5, type: 'heavy', alive: true, health: 250, frame: 0, angle: -Math.PI / 2 },
+  { x: 4.5, y: 11.5, type: 'drone', alive: true, health: 100, frame: 0, angle: 0 },
 ];
 
 // Player state
 const player = {
   x: 12, y: 21, angle: -Math.PI / 2, pitch: 0,
-  speed: 0.04, sprintSpeed: 0.07, rotSpeed: 0.004,
+  speed: 0.04, sprintSpeed: 0.07, crouchSpeed: 0.02, rotSpeed: 0.004,
   health: 100, armor: 50, ammo: 250,
   bobPhase: 0, bobAmount: 0,
-  shooting: false, shootTimer: 0, shootCooldown: 8,
+  shooting: false, shootTimer: 0, shootCooldown: 45,
   muzzleFlash: 0,
   weaponKick: 0,
   damageFlash: 0,
+  jumpZ: 0, jumpVel: 0, onGround: true,
+  crouching: false, crouchOffset: 0,
 };
 
 // Generate wall textures procedurally
@@ -326,74 +397,143 @@ function generateTextures() {
 }
 
 // Generate NPC sprites procedurally
-function generateNPCSprites() {
-  const sprites = {};
-  const npcTypes = {
-    drone: { w: 32, h: 48, bodyColor: '#0ff', eyeColor: '#f00', glowColor: '0,255,255' },
-    sentinel: { w: 36, h: 56, bodyColor: '#f80', eyeColor: '#ff0', glowColor: '255,136,0' },
-    heavy: { w: 44, h: 60, bodyColor: '#f0f', eyeColor: '#0f0', glowColor: '255,0,255' },
-  };
+// Get sprite direction index (0-7) based on entity facing vs viewer position
+function getSpriteDir(entityAngle, vx, vy, ex, ey) {
+  let r = Math.atan2(vy - ey, vx - ex) - entityAngle;
+  r = ((r % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  return Math.floor((r + Math.PI / 8) / (Math.PI / 4)) % 8;
+}
 
-  for (const [name, cfg] of Object.entries(npcTypes)) {
+// Generate 8-directional sprites for a character
+// Dirs: 0=front, 1=front-left, 2=left, 3=back-left, 4=back, 5=back-right, 6=right, 7=front-right
+function generateDirectionalSprites(bodyColor, eyeColor, glowColor, baseW) {
+  const sprites = [];
+  for (let d = 0; d < 8; d++) {
     const canvas = document.createElement('canvas');
     canvas.width = 64; canvas.height = 64;
     const ctx = canvas.getContext('2d');
     const cx = 32, cy = 32;
 
+    // Dirs 5-7 mirror dirs 3-1 for the body, weapon drawn separately
+    const bd = d <= 4 ? d : 8 - d;
+    const flip = d > 4;
+    const ws = bd === 2 ? 0.55 : (bd === 1 || bd === 3) ? 0.8 : 1.0;
+    const w = Math.floor(baseW * ws);
+    const front = bd <= 1, back = bd >= 3, side = bd === 2;
+
+    if (flip) { ctx.translate(64, 0); ctx.scale(-1, 1); }
+
     // Body glow
-    const grd = ctx.createRadialGradient(cx, cy + 4, 2, cx, cy + 4, cfg.w * 0.7);
-    grd.addColorStop(0, `rgba(${cfg.glowColor},0.3)`);
-    grd.addColorStop(1, `rgba(${cfg.glowColor},0)`);
+    const grd = ctx.createRadialGradient(cx, cy + 4, 2, cx, cy + 4, w * 0.8);
+    grd.addColorStop(0, `rgba(${glowColor},0.3)`);
+    grd.addColorStop(1, `rgba(${glowColor},0)`);
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, 64, 64);
 
-    // Legs / hover jets
+    // Legs
     ctx.fillStyle = '#333';
-    ctx.fillRect(cx - 8, cy + 16, 5, 12);
-    ctx.fillRect(cx + 3, cy + 16, 5, 12);
-    ctx.fillStyle = cfg.bodyColor;
-    ctx.fillRect(cx - 7, cy + 26, 3, 2);
-    ctx.fillRect(cx + 4, cy + 26, 3, 2);
+    if (side) {
+      ctx.fillRect(cx - 2, cy + 16, 5, 12);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - 1, cy + 26, 3, 2);
+    } else {
+      ctx.fillRect(cx - 5, cy + 16, 5, 12);
+      ctx.fillRect(cx + 1, cy + 16, 5, 12);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - 4, cy + 26, 3, 2);
+      ctx.fillRect(cx + 2, cy + 26, 3, 2);
+    }
 
     // Torso
+    const tw = w - (side ? 8 : 16);
     ctx.fillStyle = '#222';
-    ctx.fillRect(cx - cfg.w/2 + 8, cy - 8, cfg.w - 16, 26);
-    ctx.fillStyle = cfg.bodyColor;
-    ctx.strokeStyle = cfg.bodyColor;
+    ctx.fillRect(cx - tw / 2, cy - 8, tw, 26);
+    ctx.strokeStyle = bodyColor;
     ctx.lineWidth = 2;
-    ctx.strokeRect(cx - cfg.w/2 + 8, cy - 8, cfg.w - 16, 26);
+    ctx.strokeRect(cx - tw / 2, cy - 8, tw, 26);
 
-    // Core energy
-    ctx.fillStyle = cfg.bodyColor;
-    ctx.beginPath();
-    ctx.arc(cx, cy + 4, 4, 0, Math.PI * 2);
-    ctx.fill();
+    // Front: energy core / Back: exhaust panel
+    if (front) {
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath(); ctx.arc(cx, cy + 4, 4, 0, Math.PI * 2); ctx.fill();
+    }
+    if (back) {
+      ctx.fillStyle = bodyColor;
+      ctx.globalAlpha = 0.4;
+      ctx.fillRect(cx - 5, cy - 2, 10, 14);
+      ctx.globalAlpha = 1;
+      ctx.fillRect(cx - 3, cy + 1, 6, 2);
+      ctx.fillRect(cx - 3, cy + 6, 6, 2);
+    }
 
-    // Head / visor
+    // Head
+    const hw = Math.floor(20 * ws);
     ctx.fillStyle = '#181818';
-    ctx.fillRect(cx - 10, cy - 20, 20, 14);
-    ctx.fillStyle = cfg.eyeColor;
-    ctx.fillRect(cx - 7, cy - 16, 5, 4);
-    ctx.fillRect(cx + 2, cy - 16, 5, 4);
+    ctx.fillRect(cx - hw / 2, cy - 20, hw, 14);
 
-    // Shoulder plates
-    ctx.fillStyle = '#333';
-    ctx.fillRect(cx - cfg.w/2 + 2, cy - 6, 7, 12);
-    ctx.fillRect(cx + cfg.w/2 - 9, cy - 6, 7, 12);
-    ctx.fillStyle = cfg.bodyColor;
-    ctx.fillRect(cx - cfg.w/2 + 3, cy - 4, 5, 2);
-    ctx.fillRect(cx + cfg.w/2 - 8, cy - 4, 5, 2);
+    // Eyes (front/side only)
+    if (bd === 0) {
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(cx - 7, cy - 16, 5, 4);
+      ctx.fillRect(cx + 2, cy - 16, 5, 4);
+    } else if (bd === 1) {
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(cx - hw / 2 + 1, cy - 16, 4, 4);
+      ctx.fillRect(cx - hw / 2 + 7, cy - 16, 5, 4);
+    } else if (side) {
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(cx - hw / 2 + 1, cy - 16, 5, 4);
+    }
+    // Back-of-head accent
+    if (back) {
+      ctx.fillStyle = bodyColor;
+      ctx.globalAlpha = 0.3;
+      ctx.fillRect(cx - hw / 2 + 2, cy - 18, hw - 4, 2);
+      ctx.globalAlpha = 1;
+    }
 
-    // Weapon arm
-    ctx.fillStyle = '#444';
-    ctx.fillRect(cx + cfg.w/2 - 6, cy, 14, 4);
-    ctx.fillStyle = cfg.eyeColor;
-    ctx.fillRect(cx + cfg.w/2 + 6, cy, 3, 4);
+    // Shoulders
+    if (side) {
+      ctx.fillStyle = '#333';
+      ctx.fillRect(cx - w / 2, cy - 6, 5, 12);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - w / 2 + 1, cy - 4, 3, 2);
+    } else {
+      const sw = Math.max(4, Math.floor(7 * ws));
+      ctx.fillStyle = '#333';
+      ctx.fillRect(cx - w / 2 + 2, cy - 6, sw, 12);
+      ctx.fillRect(cx + w / 2 - sw - 2, cy - 6, sw, 12);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - w / 2 + 3, cy - 4, Math.min(5, sw), 2);
+      ctx.fillRect(cx + w / 2 - sw - 1, cy - 4, Math.min(5, sw), 2);
+    }
 
-    sprites[name] = {
-      canvas: canvas,
-      data: canvas.getContext('2d').getImageData(0, 0, 64, 64)
-    };
+    // Reset transform for weapon (drawn in screen-space)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Weapon arm: visible for front (dir 0) and right-side views (dirs 5,6,7)
+    if (d === 0 || d >= 5) {
+      const wx = cx + Math.floor(w / 2) - 6;
+      ctx.fillStyle = '#444';
+      ctx.fillRect(wx, cy, 14, 4);
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(wx + 12, cy, 3, 4);
+    }
+
+    sprites.push({ canvas, data: ctx.getImageData(0, 0, 64, 64) });
+  }
+  return sprites;
+}
+
+function generateNPCSprites() {
+  const sprites = {};
+  const npcTypes = {
+    drone: { w: 32, bodyColor: '#0ff', eyeColor: '#f00', glowColor: '0,255,255' },
+    sentinel: { w: 36, bodyColor: '#f80', eyeColor: '#ff0', glowColor: '255,136,0' },
+    heavy: { w: 44, bodyColor: '#f0f', eyeColor: '#0f0', glowColor: '255,0,255' },
+  };
+  for (const [name, cfg] of Object.entries(npcTypes)) {
+    sprites[name] = generateDirectionalSprites(cfg.bodyColor, cfg.eyeColor, cfg.glowColor, cfg.w);
   }
   return sprites;
 }
@@ -403,6 +543,23 @@ let gameStarted = false;
 let gamePaused = false;
 let showMap = false;
 let keys = {};
+
+// Master volume and sensitivity multipliers
+let masterVolume = 1.0;
+const BASE_ROT_SPEED = 0.004;
+
+// Footstep audio (local player only)
+const localFootstepAudio = new Audio('/audio/footsteps.mp3');
+localFootstepAudio.loop = true;
+localFootstepAudio.volume = 0.4;
+
+// Jump audio
+const jumpAudio = new Audio('/audio/jump.mp3');
+jumpAudio.volume = 0.5;
+
+// Shoot audio
+const shootAudio = new Audio('/audio/shoot.mp3');
+shootAudio.volume = 0.5;
 
 // Phaser config
 const config = {
@@ -449,7 +606,6 @@ function create() {
   const gameCanvas = game.canvas;
   const pauseScreen = document.getElementById('pause-screen');
   const container = document.getElementById('game-container');
-  let pointerLockSupported = false; // set true once pointer lock succeeds
 
   function capture() {
     gamePaused = false;
@@ -466,7 +622,9 @@ function create() {
   function release() {
     gamePaused = true;
     player.shooting = false;
+    player.moving = false;
     keys = {};
+    localFootstepAudio.pause();
     pauseScreen.style.display = 'flex';
     container.classList.remove('locked');
     document.body.classList.remove('locked');
@@ -480,42 +638,61 @@ function create() {
   // Pointer lock state changes — browser fires this on ESC or exitPointerLock()
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === gameCanvas) {
-      // Lock succeeded — mark supported, ensure unpaused
-      pointerLockSupported = true;
       gamePaused = false;
       pauseScreen.style.display = 'none';
       container.classList.add('locked');
       document.body.classList.add('locked');
-    } else if (gameStarted && pointerLockSupported && !gamePaused) {
-      // Lost lock (user pressed ESC in browser) — pause
+    } else if (gameStarted && !gamePaused) {
+      // Lost pointer lock unexpectedly (browser ESC) — pause
       release();
     }
   });
 
-  // Keyboard — ESC toggles pause (fallback mode), other keys blocked when paused
+  // Keyboard — ESC toggles pause, other keys blocked when paused
   document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
     if (!gameStarted) return;
     if (e.code === 'Escape') {
       e.preventDefault();
-      // In pointer lock mode, the browser handles ESC → pointerlockchange fires
-      // In fallback mode, we toggle manually
-      if (!pointerLockSupported) {
+      // If pointer lock is active, the browser consumes ESC and fires
+      // pointerlockchange which calls release(). Nothing to do here.
+      // If no pointer lock (fallback mode or lock not re-acquired), toggle manually.
+      if (!document.pointerLockElement) {
         if (gamePaused) { capture(); } else { release(); }
       }
       return;
     }
     if (gamePaused) return;
     keys[e.code] = true;
-    if (e.code === 'Tab') { e.preventDefault(); showMap = !showMap; }
+    if (e.code === 'Tab') showMap = !showMap;
   }, true);
-  document.addEventListener('keyup', (e) => { keys[e.code] = false; }, true);
+  document.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+  }, true);
 
   // Click to resume from pause
   pauseScreen.addEventListener('click', (e) => {
-    // Don't resume if clicking the menu link
+    // Don't resume if clicking the menu link or interacting with sliders
     if (e.target.classList.contains('menu-link')) return;
+    if (e.target.tagName === 'INPUT') return;
     e.stopPropagation();
     if (gameStarted) capture();
+  });
+
+  // Volume slider
+  const spVolSlider = document.getElementById('sp-opt-volume');
+  const spVolValue = document.getElementById('sp-vol-value');
+  spVolSlider.addEventListener('input', () => {
+    masterVolume = spVolSlider.value / 100;
+    spVolValue.textContent = spVolSlider.value + '%';
+  });
+
+  // Sensitivity slider
+  const spSensSlider = document.getElementById('sp-opt-sensitivity');
+  const spSensValue = document.getElementById('sp-sens-value');
+  spSensSlider.addEventListener('input', () => {
+    player.rotSpeed = BASE_ROT_SPEED * (spSensSlider.value / 100);
+    spSensValue.textContent = spSensSlider.value + '%';
   });
 
   // Mouse look
@@ -576,6 +753,15 @@ function update(time, delta) {
     handleMovement(dt);
     handleShooting(dt);
   }
+
+  // Update footstep audio: suppress while airborne
+  if (!gamePaused && player.moving && player.onGround) {
+    localFootstepAudio.volume = 0.4 * masterVolume;
+    if (localFootstepAudio.paused) localFootstepAudio.play().catch(() => {});
+  } else {
+    localFootstepAudio.pause();
+  }
+
   castRays();        // writes walls into frameImgData
   renderNPCs();      // writes NPC pixels into frameImgData
   renderCtx.putImageData(frameImgData, 0, 0); // commit pixel buffer
@@ -590,7 +776,8 @@ function update(time, delta) {
 // ---- Movement ----
 function handleMovement(dt) {
   const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
-  const speed = (sprint ? player.sprintSpeed : player.speed) * dt;
+  player.crouching = !!keys['KeyC'];
+  const speed = (player.crouching ? player.crouchSpeed : sprint ? player.sprintSpeed : player.speed) * dt;
   let moving = false;
   let dx = 0, dy = 0;
 
@@ -599,14 +786,57 @@ function handleMovement(dt) {
   if (keys['KeyA']) { dx += Math.cos(player.angle - Math.PI/2) * speed; dy += Math.sin(player.angle - Math.PI/2) * speed; moving = true; }
   if (keys['KeyD']) { dx += Math.cos(player.angle + Math.PI/2) * speed; dy += Math.sin(player.angle + Math.PI/2) * speed; moving = true; }
 
-  // Collision detection with sliding
+  // Collision detection with sliding (walls)
   const r = 0.2;
-  if (MAP[Math.floor(player.y)][Math.floor(player.x + dx + Math.sign(dx) * r)] === 0) player.x += dx;
-  if (MAP[Math.floor(player.y + dy + Math.sign(dy) * r)][Math.floor(player.x)] === 0) player.y += dy;
+  let newX = player.x, newY = player.y;
+  if (MAP[Math.floor(player.y)][Math.floor(player.x + dx + Math.sign(dx) * r)] === 0) newX += dx;
+  if (MAP[Math.floor(newY + dy + Math.sign(dy) * r)][Math.floor(newX)] === 0) newY += dy;
+
+  // Collision detection with NPCs (circle-vs-circle, slide around)
+  const colR = 0.4; // combined collision radius (player 0.2 + npc 0.2)
+  for (const npc of NPCS) {
+    if (!npc.alive) continue;
+    const ex = npc.x - newX, ey = npc.y - newY;
+    const dist = Math.sqrt(ex * ex + ey * ey);
+    if (dist < colR && dist > 0.001) {
+      const push = (colR - dist) / dist;
+      newX -= ex * push;
+      newY -= ey * push;
+    }
+  }
+
+  player.x = newX;
+  player.y = newY;
+
+  // Jump
+  if (keys['Space'] && player.onGround) {
+    player.jumpVel = 0.20;
+    player.onGround = false;
+    jumpAudio.currentTime = 0;
+    jumpAudio.volume = 0.5 * masterVolume;
+    jumpAudio.play().catch(() => {});
+  }
+  if (!player.onGround) {
+    player.jumpZ += player.jumpVel * dt;
+    player.jumpVel -= 0.010 * dt;
+    if (player.jumpZ <= 0) {
+      player.jumpZ = 0;
+      player.jumpVel = 0;
+      player.onGround = true;
+    }
+  }
+
+  // Track audible movement: walking or sprinting, NOT crouching, NOT airborne
+  player.moving = moving && !player.crouching && player.onGround;
+
+  // Crouch interpolation (smooth transition)
+  const crouchTarget = player.crouching ? 1 : 0;
+  player.crouchOffset += (crouchTarget - player.crouchOffset) * 0.2 * dt;
 
   // Head bob
+  const bobSpeed = player.crouching ? 0.08 : (sprint ? 0.18 : 0.12);
   if (moving) {
-    player.bobPhase += (sprint ? 0.18 : 0.12) * dt;
+    player.bobPhase += bobSpeed * dt;
     player.bobAmount = Math.min(player.bobAmount + 0.1 * dt, 1);
   } else {
     player.bobAmount = Math.max(player.bobAmount - 0.08 * dt, 0);
@@ -625,6 +855,11 @@ function handleShooting(dt) {
     player.shootTimer = player.shootCooldown;
     player.muzzleFlash = 4;
     player.weaponKick = 6;
+
+    // Play shoot sound
+    shootAudio.currentTime = 0;
+    shootAudio.volume = 0.5 * masterVolume;
+    shootAudio.play().catch(() => {});
 
     // Hitscan check against NPCs
     const hitNpc = castHitscan();
@@ -686,8 +921,11 @@ function castRays() {
   const imgData = renderCtx.createImageData(RENDER_W, RENDER_H);
   const data = imgData.data;
 
-  // Ceiling and floor gradient
-  const horizonY = RENDER_H / 2 + player.pitch;
+  const crouchShift = -player.crouchOffset * 25;
+  const jumpShift = player.jumpZ * 55;
+  const wallOffset = jumpShift + crouchShift;
+  // Counter-pitch: tilt horizon slightly opposite to jump to compensate for wall shift
+  const horizonY = RENDER_H / 2 + player.pitch + crouchShift - jumpShift * 0.3;
   for (let y = 0; y < RENDER_H; y++) {
     let r, g, b;
     if (y < horizonY) {
@@ -766,7 +1004,7 @@ function castRays() {
     // Wall height
     const lineHeight = Math.floor(RENDER_H / dist);
     const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-    const horizon = RENDER_H / 2 + player.pitch + bobOffset;
+    const horizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
     let drawStart = Math.floor(horizon - lineHeight / 2);
     let drawEnd = Math.floor(horizon + lineHeight / 2);
 
@@ -823,6 +1061,7 @@ function renderNPCs() {
   }).sort((a, b) => b.dist - a.dist);
 
   const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
+  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
 
   for (const npc of sorted) {
     let angle = Math.atan2(npc.dy, npc.dx) - player.angle;
@@ -835,9 +1074,10 @@ function renderNPCs() {
     const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
     const spriteH = Math.min(RENDER_H * 1.5, (RENDER_H / npc.dist) * 0.8);
     const spriteW = spriteH * 0.7;
-    const spriteTop = RENDER_H / 2 - spriteH / 2 + bobOffset + player.pitch;
+    const spriteTop = RENDER_H / 2 - spriteH / 2 + bobOffset + player.pitch + wallOffset;
 
-    const spriteInfo = npcSprites[npc.type];
+    const dir = getSpriteDir(npc.ref.angle, player.x, player.y, npc.ref.x, npc.ref.y);
+    const spriteInfo = npcSprites[npc.type][dir];
     if (!spriteInfo) continue;
     const spriteData = spriteInfo.data.data;
 

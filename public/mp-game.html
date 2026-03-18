@@ -194,6 +194,118 @@
     transition: width 0.2s;
   }
   .phud-dead { text-decoration: line-through; opacity: 0.4; }
+
+  /* Options overlay (ESC menu) */
+  #options-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.65);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 85;
+    cursor: default;
+  }
+  #options-overlay .options-title {
+    font-size: 28px;
+    color: #0ff;
+    text-shadow: 0 0 20px #0ff, 0 0 40px #0ff;
+    letter-spacing: 8px;
+    margin-bottom: 30px;
+    text-transform: uppercase;
+  }
+  #options-overlay .options-group {
+    margin-bottom: 20px;
+    width: 280px;
+  }
+  #options-overlay .options-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #0f0;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  #options-overlay .options-value {
+    color: #0ff;
+    min-width: 36px;
+    text-align: right;
+  }
+  #options-overlay input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: #222;
+    border-radius: 2px;
+    outline: none;
+  }
+  #options-overlay input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #0ff;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(0,255,255,0.6);
+  }
+  #options-overlay input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #0ff;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 8px rgba(0,255,255,0.6);
+  }
+  #options-overlay .options-resume {
+    margin-top: 20px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    color: #0f0;
+    background: transparent;
+    border: 2px solid #0f0;
+    padding: 10px 32px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    transition: all 0.3s;
+    text-shadow: 0 0 10px #0f0;
+    box-shadow: 0 0 15px rgba(0,255,0,0.3);
+  }
+  #options-overlay .options-resume:hover {
+    background: rgba(0,255,0,0.15);
+    box-shadow: 0 0 30px rgba(0,255,0,0.5);
+  }
+  #options-overlay .options-hint {
+    margin-top: 16px;
+    font-size: 11px;
+    color: #555;
+    letter-spacing: 1px;
+  }
+  #options-overlay .options-hint span { color: #0ff; }
+  #options-overlay .options-lobby-link {
+    margin-top: 20px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #f0a;
+    letter-spacing: 2px;
+    text-decoration: none;
+    border: 1px solid rgba(255, 0, 170, 0.3);
+    padding: 8px 20px;
+    transition: all 0.3s;
+    text-transform: uppercase;
+  }
+  #options-overlay .options-lobby-link:hover {
+    background: rgba(255, 0, 170, 0.15);
+    border-color: #f0a;
+    box-shadow: 0 0 15px rgba(255, 0, 170, 0.3);
+  }
 </style>
 </head>
 <body>
@@ -206,6 +318,26 @@
   <div id="death-overlay">
     <div class="death-text">ELIMINATED</div>
     <div class="death-sub">Waiting for match to end...</div>
+  </div>
+  <div id="options-overlay">
+    <div class="options-title">Options</div>
+    <div class="options-group">
+      <div class="options-label">
+        <span>Master Volume</span>
+        <span class="options-value" id="vol-value">100%</span>
+      </div>
+      <input type="range" id="opt-volume" min="0" max="100" value="100">
+    </div>
+    <div class="options-group">
+      <div class="options-label">
+        <span>Mouse Sensitivity</span>
+        <span class="options-value" id="sens-value">100%</span>
+      </div>
+      <input type="range" id="opt-sensitivity" min="10" max="300" value="100">
+    </div>
+    <button class="options-resume" id="options-resume-btn">Resume</button>
+    <div class="options-hint">Press <span>ESC</span> to resume</div>
+    <a href="/lobby.html" class="options-lobby-link">Leave Match</a>
   </div>
   <div id="kill-feed"></div>
   <div id="player-hud"></div>
@@ -304,12 +436,14 @@ const myTeam = mySpawn.team;
 // Player state
 const player = {
   x: mySpawn.x, y: mySpawn.y, angle: mySpawn.angle, pitch: 0,
-  speed: 0.04, sprintSpeed: 0.07, rotSpeed: 0.004,
+  speed: 0.04, sprintSpeed: 0.07, crouchSpeed: 0.02, rotSpeed: 0.004,
   health: 100, armor: 0, ammo: 250,
   bobPhase: 0, bobAmount: 0,
-  shooting: false, shootTimer: 0, shootCooldown: 8,
+  shooting: false, shootTimer: 0, shootCooldown: 45,
   muzzleFlash: 0, weaponKick: 0, damageFlash: 0,
   alive: true,
+  jumpZ: 0, jumpVel: 0, onGround: true,
+  crouching: false, crouchOffset: 0,
 };
 
 // Remote players: username -> { x, y, angle, targetX, targetY, targetAngle, health, alive, team, color, hitFlash }
@@ -334,6 +468,10 @@ for (const [name, sd] of Object.entries(spawnData)) {
     health: 100, alive: true,
     team: sd.team, color,
     hitFlash: 0,
+    crouching: false,
+    jumpZ: 0, targetJumpZ: 0,
+    moving: false,
+    onGround: true, wasOnGround: true,
   });
 }
 
@@ -386,54 +524,135 @@ function generateTextures() {
   return textures;
 }
 
+function getSpriteDir(entityAngle, vx, vy, ex, ey) {
+  let r = Math.atan2(vy - ey, vx - ex) - entityAngle;
+  r = ((r % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  return Math.floor((r + Math.PI / 8) / (Math.PI / 4)) % 8;
+}
+
+// Generate 8-directional sprites for a character
+// Dirs: 0=front, 1=front-left, 2=left, 3=back-left, 4=back, 5=back-right, 6=right, 7=front-right
+function generateDirectionalSprites(bodyColor, eyeColor, glowColor, baseW) {
+  const sprites = [];
+  for (let d = 0; d < 8; d++) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const cx = 32, cy = 32;
+
+    // Dirs 5-7 mirror dirs 3-1 for the body, weapon drawn separately
+    const bd = d <= 4 ? d : 8 - d;
+    const flip = d > 4;
+    const ws = bd === 2 ? 0.55 : (bd === 1 || bd === 3) ? 0.8 : 1.0;
+    const w = Math.floor(baseW * ws);
+    const front = bd <= 1, back = bd >= 3, side = bd === 2;
+
+    if (flip) { ctx.translate(64, 0); ctx.scale(-1, 1); }
+
+    // Body glow
+    const grd = ctx.createRadialGradient(cx, cy + 4, 2, cx, cy + 4, w * 0.8);
+    grd.addColorStop(0, `rgba(${glowColor},0.3)`);
+    grd.addColorStop(1, `rgba(${glowColor},0)`);
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 64, 64);
+
+    // Legs
+    ctx.fillStyle = '#333';
+    if (side) {
+      ctx.fillRect(cx - 2, cy + 16, 5, 12);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - 1, cy + 26, 3, 2);
+    } else {
+      ctx.fillRect(cx - 5, cy + 16, 5, 12);
+      ctx.fillRect(cx + 1, cy + 16, 5, 12);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - 4, cy + 26, 3, 2);
+      ctx.fillRect(cx + 2, cy + 26, 3, 2);
+    }
+
+    // Torso
+    const tw = w - (side ? 8 : 16);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - tw / 2, cy - 8, tw, 26);
+    ctx.strokeStyle = bodyColor;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - tw / 2, cy - 8, tw, 26);
+
+    // Front: energy core / Back: exhaust panel
+    if (front) {
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath(); ctx.arc(cx, cy + 4, 4, 0, Math.PI * 2); ctx.fill();
+    }
+    if (back) {
+      ctx.fillStyle = bodyColor;
+      ctx.globalAlpha = 0.4;
+      ctx.fillRect(cx - 5, cy - 2, 10, 14);
+      ctx.globalAlpha = 1;
+      ctx.fillRect(cx - 3, cy + 1, 6, 2);
+      ctx.fillRect(cx - 3, cy + 6, 6, 2);
+    }
+
+    // Head
+    const hw = Math.floor(20 * ws);
+    ctx.fillStyle = '#181818';
+    ctx.fillRect(cx - hw / 2, cy - 20, hw, 14);
+
+    // Eyes (front/side only)
+    if (bd === 0) {
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(cx - 7, cy - 16, 5, 4);
+      ctx.fillRect(cx + 2, cy - 16, 5, 4);
+    } else if (bd === 1) {
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(cx - hw / 2 + 1, cy - 16, 4, 4);
+      ctx.fillRect(cx - hw / 2 + 7, cy - 16, 5, 4);
+    } else if (side) {
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(cx - hw / 2 + 1, cy - 16, 5, 4);
+    }
+    // Back-of-head accent
+    if (back) {
+      ctx.fillStyle = bodyColor;
+      ctx.globalAlpha = 0.3;
+      ctx.fillRect(cx - hw / 2 + 2, cy - 18, hw - 4, 2);
+      ctx.globalAlpha = 1;
+    }
+
+    // Shoulders
+    if (side) {
+      ctx.fillStyle = '#333';
+      ctx.fillRect(cx - w / 2, cy - 6, 5, 12);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - w / 2 + 1, cy - 4, 3, 2);
+    } else {
+      const sw = Math.max(4, Math.floor(7 * ws));
+      ctx.fillStyle = '#333';
+      ctx.fillRect(cx - w / 2 + 2, cy - 6, sw, 12);
+      ctx.fillRect(cx + w / 2 - sw - 2, cy - 6, sw, 12);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - w / 2 + 3, cy - 4, Math.min(5, sw), 2);
+      ctx.fillRect(cx + w / 2 - sw - 1, cy - 4, Math.min(5, sw), 2);
+    }
+
+    // Reset transform for weapon (drawn in screen-space)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Weapon arm: visible for front (dir 0) and right-side views (dirs 5,6,7)
+    if (d === 0 || d >= 5) {
+      const wx = cx + Math.floor(w / 2) - 6;
+      ctx.fillStyle = '#444';
+      ctx.fillRect(wx, cy, 14, 4);
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(wx + 12, cy, 3, 4);
+    }
+
+    sprites.push({ canvas, data: ctx.getImageData(0, 0, 64, 64) });
+  }
+  return sprites;
+}
+
 function generatePlayerSprite(colorCfg) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64; canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  const cx = 32, cy = 32, w = 36, bodyColor = colorCfg.body, eyeColor = colorCfg.eye, glowColor = colorCfg.glow;
-
-  const grd = ctx.createRadialGradient(cx, cy + 4, 2, cx, cy + 4, w * 0.7);
-  grd.addColorStop(0, `rgba(${glowColor},0.3)`);
-  grd.addColorStop(1, `rgba(${glowColor},0)`);
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, 64, 64);
-
-  ctx.fillStyle = '#333';
-  ctx.fillRect(cx - 8, cy + 16, 5, 12);
-  ctx.fillRect(cx + 3, cy + 16, 5, 12);
-  ctx.fillStyle = bodyColor;
-  ctx.fillRect(cx - 7, cy + 26, 3, 2);
-  ctx.fillRect(cx + 4, cy + 26, 3, 2);
-
-  ctx.fillStyle = '#222';
-  ctx.fillRect(cx - w/2 + 8, cy - 8, w - 16, 26);
-  ctx.fillStyle = bodyColor;
-  ctx.strokeStyle = bodyColor;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(cx - w/2 + 8, cy - 8, w - 16, 26);
-
-  ctx.fillStyle = bodyColor;
-  ctx.beginPath(); ctx.arc(cx, cy + 4, 4, 0, Math.PI * 2); ctx.fill();
-
-  ctx.fillStyle = '#181818';
-  ctx.fillRect(cx - 10, cy - 20, 20, 14);
-  ctx.fillStyle = eyeColor;
-  ctx.fillRect(cx - 7, cy - 16, 5, 4);
-  ctx.fillRect(cx + 2, cy - 16, 5, 4);
-
-  ctx.fillStyle = '#333';
-  ctx.fillRect(cx - w/2 + 2, cy - 6, 7, 12);
-  ctx.fillRect(cx + w/2 - 9, cy - 6, 7, 12);
-  ctx.fillStyle = bodyColor;
-  ctx.fillRect(cx - w/2 + 3, cy - 4, 5, 2);
-  ctx.fillRect(cx + w/2 - 8, cy - 4, 5, 2);
-
-  ctx.fillStyle = '#444';
-  ctx.fillRect(cx + w/2 - 6, cy, 14, 4);
-  ctx.fillStyle = eyeColor;
-  ctx.fillRect(cx + w/2 + 6, cy, 3, 4);
-
-  return { canvas, data: ctx.getImageData(0, 0, 64, 64) };
+  return generateDirectionalSprites(colorCfg.body, colorCfg.eye, colorCfg.glow, 36);
 }
 
 // ========================================
@@ -443,8 +662,104 @@ let wallTextures;
 let playerSprites = {}; // keyed by username
 let gameActive = false;
 let gameOver = false;
+let optionsOpen = false;
 let keys = {};
 let renderTex, renderCtx, depthBuffer, frameImgData;
+
+// Master volume and sensitivity multipliers
+let masterVolume = 1.0;
+const BASE_ROT_SPEED = 0.004;
+
+// ========================================
+// Audio system
+// ========================================
+const AUDIO_MAX_DIST = 15; // distance at which remote sounds become inaudible
+const FOOTSTEP_LOCAL_VOLUME = 0.4;
+
+// Local player audio
+const localFootstepAudio = new Audio('/audio/footsteps.mp3');
+localFootstepAudio.loop = true;
+localFootstepAudio.volume = FOOTSTEP_LOCAL_VOLUME;
+
+const jumpAudio = new Audio('/audio/jump.mp3');
+jumpAudio.volume = 0.5;
+
+const shootAudio = new Audio('/audio/shoot.mp3');
+shootAudio.volume = 0.5;
+
+// Per-remote-player audio objects
+const remoteAudio = new Map(); // username -> { footstep, jump, shoot }
+
+function initRemoteAudio(username) {
+  const footstep = new Audio('/audio/footsteps.mp3');
+  footstep.loop = true;
+  footstep.volume = 0;
+  const jump = new Audio('/audio/jump.mp3');
+  jump.volume = 0;
+  const shoot = new Audio('/audio/shoot.mp3');
+  shoot.volume = 0;
+  remoteAudio.set(username, { footstep, jump, shoot });
+}
+
+function getRemoteVolume(rp) {
+  const dx = rp.x - player.x;
+  const dy = rp.y - player.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  return Math.max(0, 1 - dist / AUDIO_MAX_DIST) * masterVolume;
+}
+
+function updateLocalFootsteps() {
+  if (!gameActive || !player.alive || gameOver) {
+    localFootstepAudio.pause();
+    return;
+  }
+  if (player.moving) {
+    localFootstepAudio.volume = FOOTSTEP_LOCAL_VOLUME * masterVolume;
+    if (localFootstepAudio.paused) {
+      localFootstepAudio.play().catch(() => {});
+    }
+  } else {
+    localFootstepAudio.pause();
+  }
+}
+
+function updateRemoteAudio() {
+  for (const [username, rp] of remotePlayers) {
+    const audio = remoteAudio.get(username);
+    if (!audio) continue;
+
+    // Footsteps: play when moving (already accounts for crouch + airborne)
+    const shouldPlayFootsteps = rp.alive && rp.moving && gameActive && !gameOver;
+    if (shouldPlayFootsteps) {
+      audio.footstep.volume = getRemoteVolume(rp) * 0.6;
+      if (audio.footstep.paused) {
+        audio.footstep.play().catch(() => {});
+      }
+    } else {
+      audio.footstep.pause();
+    }
+
+    // Jump: detect transition from onGround to airborne
+    if (rp.alive && !rp.onGround && rp.wasOnGround && gameActive && !gameOver) {
+      const vol = getRemoteVolume(rp) * 0.5;
+      if (vol > 0) {
+        audio.jump.volume = vol;
+        audio.jump.currentTime = 0;
+        audio.jump.play().catch(() => {});
+      }
+    }
+    rp.wasOnGround = rp.onGround;
+  }
+}
+
+function stopAllAudio() {
+  localFootstepAudio.pause();
+  jumpAudio.pause();
+  shootAudio.pause();
+  for (const audio of remoteAudio.values()) {
+    audio.footstep.pause();
+  }
+}
 
 // ========================================
 // Phaser setup
@@ -468,6 +783,7 @@ function gameCreate() {
   // Generate sprites for each remote player
   for (const [name, rp] of remotePlayers) {
     playerSprites[name] = generatePlayerSprite(rp.color);
+    initRemoteAudio(name);
   }
 
   const renderCanvas = document.createElement('canvas');
@@ -484,17 +800,71 @@ function gameCreate() {
 
   const gameCanvas = game.canvas;
   const container = document.getElementById('game-container');
+  const optionsOverlay = document.getElementById('options-overlay');
+  const volSlider = document.getElementById('opt-volume');
+  const volValue = document.getElementById('vol-value');
+  const sensSlider = document.getElementById('opt-sensitivity');
+  const sensValue = document.getElementById('sens-value');
+
+  function openOptions() {
+    optionsOpen = true;
+    player.shooting = false;
+    keys = {};
+    optionsOverlay.style.display = 'flex';
+    container.classList.remove('locked');
+    document.body.classList.remove('locked');
+    if (document.pointerLockElement) {
+      try { document.exitPointerLock(); } catch(e) {}
+    }
+  }
+
+  function closeOptions() {
+    optionsOpen = false;
+    optionsOverlay.style.display = 'none';
+    container.classList.add('locked');
+    document.body.classList.add('locked');
+    try { gameCanvas.requestPointerLock(); } catch(e) {}
+  }
+
+  // Volume slider
+  volSlider.addEventListener('input', () => {
+    masterVolume = volSlider.value / 100;
+    volValue.textContent = volSlider.value + '%';
+  });
+
+  // Sensitivity slider
+  sensSlider.addEventListener('input', () => {
+    player.rotSpeed = BASE_ROT_SPEED * (sensSlider.value / 100);
+    sensValue.textContent = sensSlider.value + '%';
+  });
+
+  // Resume button
+  document.getElementById('options-resume-btn').addEventListener('click', closeOptions);
 
   document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
     if (!gameActive || gameOver) return;
-    if (e.code === 'Tab') { e.preventDefault(); showMap = !showMap; return; }
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      // If pointer lock is active, the browser exits it on ESC and consumes the
+      // keydown — pointerlockchange will open the options panel instead.
+      // If no pointer lock (options already open, or lock not re-acquired), toggle.
+      if (!document.pointerLockElement) {
+        if (optionsOpen) { closeOptions(); } else { openOptions(); }
+      }
+      return;
+    }
+    if (optionsOpen) return;
+    if (e.code === 'Tab') { showMap = !showMap; return; }
     keys[e.code] = true;
   }, true);
-  document.addEventListener('keyup', (e) => { keys[e.code] = false; }, true);
+  document.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+  }, true);
 
   const MAX_PITCH = RENDER_H * 0.75;
   document.addEventListener('mousemove', (e) => {
-    if (!gameActive || !player.alive || gameOver) return;
+    if (!gameActive || !player.alive || gameOver || optionsOpen) return;
     if (document.pointerLockElement === gameCanvas) {
       player.angle += e.movementX * player.rotSpeed;
       player.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH,
@@ -503,7 +873,7 @@ function gameCreate() {
   }, true);
 
   document.addEventListener('mousedown', (e) => {
-    if (!gameActive || !player.alive || gameOver) return;
+    if (!gameActive || !player.alive || gameOver || optionsOpen) return;
     if (!document.pointerLockElement) {
       try { gameCanvas.requestPointerLock(); } catch(e) {}
       return;
@@ -513,9 +883,15 @@ function gameCreate() {
   document.addEventListener('mouseup', () => { player.shooting = false; }, true);
 
   document.addEventListener('pointerlockchange', () => {
-    if (document.pointerLockElement !== gameCanvas) {
-      player.shooting = false;
-      keys = {};
+    if (document.pointerLockElement === gameCanvas) {
+      // Re-acquired pointer lock (after closing options)
+      optionsOpen = false;
+      optionsOverlay.style.display = 'none';
+      container.classList.add('locked');
+      document.body.classList.add('locked');
+    } else if (gameActive && !gameOver && !optionsOpen) {
+      // Lost pointer lock (browser ESC) — open options
+      openOptions();
     }
   });
 
@@ -528,7 +904,7 @@ let showMap = false;
 function gameUpdate(time, delta) {
   const dt = delta / 16.666;
 
-  if (gameActive && player.alive && !gameOver) {
+  if (gameActive && player.alive && !gameOver && !optionsOpen) {
     handleMovement(dt);
     handleShooting(dt);
   } else {
@@ -547,8 +923,13 @@ function gameUpdate(time, delta) {
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
     rp.angle += angleDiff * 0.3;
+    rp.jumpZ += (rp.targetJumpZ - rp.jumpZ) * 0.3;
     if (rp.hitFlash > 0) rp.hitFlash -= dt;
   }
+
+  // Update audio
+  updateLocalFootsteps();
+  updateRemoteAudio();
 
   castRays();
   renderRemotePlayers();
@@ -565,7 +946,8 @@ function gameUpdate(time, delta) {
 // ========================================
 function handleMovement(dt) {
   const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
-  const speed = (sprint ? player.sprintSpeed : player.speed) * dt;
+  player.crouching = !!keys['KeyC'];
+  const speed = (player.crouching ? player.crouchSpeed : sprint ? player.sprintSpeed : player.speed) * dt;
   let moving = false;
   let dx = 0, dy = 0;
 
@@ -574,12 +956,57 @@ function handleMovement(dt) {
   if (keys['KeyA']) { dx += Math.cos(player.angle - Math.PI/2) * speed; dy += Math.sin(player.angle - Math.PI/2) * speed; moving = true; }
   if (keys['KeyD']) { dx += Math.cos(player.angle + Math.PI/2) * speed; dy += Math.sin(player.angle + Math.PI/2) * speed; moving = true; }
 
+  // Collision detection with sliding (walls)
   const r = 0.2;
-  if (MAP[Math.floor(player.y)][Math.floor(player.x + dx + Math.sign(dx) * r)] === 0) player.x += dx;
-  if (MAP[Math.floor(player.y + dy + Math.sign(dy) * r)][Math.floor(player.x)] === 0) player.y += dy;
+  let newX = player.x, newY = player.y;
+  if (MAP[Math.floor(player.y)][Math.floor(player.x + dx + Math.sign(dx) * r)] === 0) newX += dx;
+  if (MAP[Math.floor(newY + dy + Math.sign(dy) * r)][Math.floor(newX)] === 0) newY += dy;
 
+  // Collision detection with remote players (circle-vs-circle, slide around)
+  const colR = 0.4; // combined collision radius (player 0.2 + player 0.2)
+  for (const rp of remotePlayers.values()) {
+    if (!rp.alive) continue;
+    const ex = rp.x - newX, ey = rp.y - newY;
+    const dist = Math.sqrt(ex * ex + ey * ey);
+    if (dist < colR && dist > 0.001) {
+      const push = (colR - dist) / dist;
+      newX -= ex * push;
+      newY -= ey * push;
+    }
+  }
+
+  player.x = newX;
+  player.y = newY;
+
+  // Jump
+  if (keys['Space'] && player.onGround) {
+    player.jumpVel = 0.20;
+    player.onGround = false;
+    jumpAudio.currentTime = 0;
+    jumpAudio.volume = 0.5 * masterVolume;
+    jumpAudio.play().catch(() => {});
+  }
+  if (!player.onGround) {
+    player.jumpZ += player.jumpVel * dt;
+    player.jumpVel -= 0.010 * dt;
+    if (player.jumpZ <= 0) {
+      player.jumpZ = 0;
+      player.jumpVel = 0;
+      player.onGround = true;
+    }
+  }
+
+  // Track audible movement: walking or sprinting, NOT crouching, NOT airborne
+  player.moving = moving && !player.crouching && player.onGround;
+
+  // Crouch interpolation (smooth transition)
+  const crouchTarget = player.crouching ? 1 : 0;
+  player.crouchOffset += (crouchTarget - player.crouchOffset) * 0.2 * dt;
+
+  // Head bob
+  const bobSpeed = player.crouching ? 0.08 : (sprint ? 0.18 : 0.12);
   if (moving) {
-    player.bobPhase += (sprint ? 0.18 : 0.12) * dt;
+    player.bobPhase += bobSpeed * dt;
     player.bobAmount = Math.min(player.bobAmount + 0.1 * dt, 1);
   } else {
     player.bobAmount = Math.max(player.bobAmount - 0.08 * dt, 0);
@@ -601,6 +1028,14 @@ function handleShooting(dt) {
     player.muzzleFlash = 4;
     player.weaponKick = 6;
 
+    // Play shoot sound locally
+    shootAudio.currentTime = 0;
+    shootAudio.volume = 0.5 * masterVolume;
+    shootAudio.play().catch(() => {});
+
+    // Notify other players of the shot (for audio)
+    socket.emit('game:fire');
+
     const hit = castHitscan();
     if (hit) {
       socket.emit('game:shoot', { target: hit.username });
@@ -612,6 +1047,9 @@ function castHitscan() {
   let closest = null;
   let closestDist = Infinity;
   const cx = RENDER_W / 2;
+  const cy = RENDER_H / 2;
+  const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
+  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
 
   for (const [name, rp] of remotePlayers) {
     if (!rp.alive) continue;
@@ -624,12 +1062,23 @@ function castHitscan() {
 
     if (Math.abs(angle) < FOV / 2) {
       const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
-      const spriteH = Math.min(RENDER_H, RENDER_H / dist);
-      const halfW = spriteH * 0.4;
+      const baseH = Math.min(RENDER_H * 1.5, (RENDER_H / dist) * 0.8);
+      // Width stays constant regardless of crouch
+      const halfW = baseH * 0.4;
+
       if (cx >= screenX - halfW && cx <= screenX + halfW && dist < closestDist) {
-        if (hasLineOfSight(player.x, player.y, rp.x, rp.y)) {
-          closestDist = dist;
-          closest = { username: name, dist };
+        // Vertical hitbox check — crouch only lowers the top, bottom stays anchored
+        const crouchScale = rp.crouching ? 0.6 : 1.0;
+        const spriteH = baseH * crouchScale;
+        const remoteJumpOffset = rp.jumpZ * 55 / Math.max(dist, 0.3);
+        const spriteBottom = cy + baseH / 2 + bobOffset + player.pitch + wallOffset - remoteJumpOffset;
+        const spriteTop = spriteBottom - spriteH;
+
+        if (cy >= spriteTop && cy <= spriteBottom) {
+          if (hasLineOfSight(player.x, player.y, rp.x, rp.y)) {
+            closestDist = dist;
+            closest = { username: name, dist };
+          }
         }
       }
     }
@@ -657,7 +1106,11 @@ function hasLineOfSight(x0, y0, x1, y1) {
 function castRays() {
   const imgData = renderCtx.createImageData(RENDER_W, RENDER_H);
   const data = imgData.data;
-  const horizonY = RENDER_H / 2 + player.pitch;
+  const crouchShift = -player.crouchOffset * 25;
+  const jumpShift = player.jumpZ * 55;
+  const wallOffset = jumpShift + crouchShift;
+  // Counter-pitch: tilt horizon slightly opposite to jump to compensate for wall shift
+  const horizonY = RENDER_H / 2 + player.pitch + crouchShift - jumpShift * 0.3;
 
   for (let y = 0; y < RENDER_H; y++) {
     let r, g, b;
@@ -701,7 +1154,7 @@ function castRays() {
 
     const lineHeight = Math.floor(RENDER_H / dist);
     const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-    const horizon = RENDER_H / 2 + player.pitch + bobOffset;
+    const horizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
     const drawStart = Math.floor(horizon - lineHeight / 2);
     const drawEnd = Math.floor(horizon + lineHeight / 2);
 
@@ -750,6 +1203,7 @@ function renderRemotePlayers() {
   sorted.sort((a, b) => b.dist - a.dist);
 
   const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
+  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
 
   for (const rp of sorted) {
     let angle = Math.atan2(rp.dy, rp.dx) - player.angle;
@@ -759,11 +1213,17 @@ function renderRemotePlayers() {
     if (rp.dist < 0.3) continue;
 
     const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
-    const spriteH = Math.min(RENDER_H * 1.5, (RENDER_H / rp.dist) * 0.8);
-    const spriteW = spriteH * 0.7;
-    const spriteTop = RENDER_H / 2 - spriteH / 2 + bobOffset + player.pitch;
+    const baseH = Math.min(RENDER_H * 1.5, (RENDER_H / rp.dist) * 0.8);
+    const crouchScale = rp.ref.crouching ? 0.6 : 1.0;
+    const spriteH = baseH * crouchScale;
+    const spriteW = baseH * 0.7;
+    const remoteJumpOffset = rp.ref.jumpZ * 55 / Math.max(rp.dist, 0.3);
+    const spriteTop = RENDER_H / 2 + baseH / 2 - spriteH + bobOffset + player.pitch + wallOffset - remoteJumpOffset;
 
-    const spriteInfo = playerSprites[rp.username];
+    const dir = getSpriteDir(rp.ref.angle, player.x, player.y, rp.ref.x, rp.ref.y);
+    const spriteArr = playerSprites[rp.username];
+    if (!spriteArr) continue;
+    const spriteInfo = spriteArr[dir];
     if (!spriteInfo) continue;
     const spriteData = spriteInfo.data.data;
 
@@ -1152,6 +1612,10 @@ socket.on('game:go', () => {
       x: player.x,
       y: player.y,
       angle: player.angle,
+      crouching: player.crouching,
+      jumpZ: player.jumpZ,
+      moving: player.moving,
+      onGround: player.onGround,
     });
   }, 66); // ~15Hz
 
@@ -1167,6 +1631,24 @@ socket.on('game:playerState', (data) => {
   rp.targetY = data.y;
   rp.targetAngle = data.angle;
   rp.health = data.health;
+  rp.crouching = !!data.crouching;
+  rp.targetJumpZ = typeof data.jumpZ === 'number' ? data.jumpZ : 0;
+  rp.moving = !!data.moving;
+  rp.onGround = !!data.onGround;
+});
+
+// Remote player fired weapon (audio only)
+socket.on('game:playerFire', (data) => {
+  const rp = remotePlayers.get(data.username);
+  if (!rp || !rp.alive) return;
+  const audio = remoteAudio.get(data.username);
+  if (!audio) return;
+  const vol = getRemoteVolume(rp) * 0.5;
+  if (vol > 0) {
+    audio.shoot.volume = vol;
+    audio.shoot.currentTime = 0;
+    audio.shoot.play().catch(() => {});
+  }
 });
 
 // Player was hit
@@ -1190,8 +1672,10 @@ socket.on('game:playerKill', (data) => {
   if (data.victim === mpUsername) {
     player.alive = false;
     player.health = 0;
+    player.moving = false;
     document.getElementById('death-overlay').style.display = 'flex';
     player.shooting = false;
+    localFootstepAudio.pause();
   } else {
     const rp = remotePlayers.get(data.victim);
     if (rp) {
@@ -1207,7 +1691,9 @@ socket.on('game:over', (data) => {
   gameOver = true;
   gameActive = false;
   player.shooting = false;
+  player.moving = false;
   keys = {};
+  stopAllAudio();
   document.getElementById('death-overlay').style.display = 'none';
   showScoreScreen(data.result, data.stats, data.mode);
 });

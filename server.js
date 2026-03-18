@@ -72,7 +72,26 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 function emitPlayerList() {
-  const playerList = Array.from(lobbyUsers.keys());
+  const playerList = [];
+  const seen = new Set();
+
+  // Lobby users first (not in-game)
+  for (const u of lobbyUsers.keys()) {
+    seen.add(u);
+    playerList.push({ username: u, inGame: false });
+  }
+
+  // Add in-game players who aren't already listed
+  for (const g of games.values()) {
+    if (g.status === 'waiting') continue; // waiting players still have lobby sockets
+    for (const [uname] of g.players) {
+      if (!seen.has(uname)) {
+        seen.add(uname);
+        playerList.push({ username: uname, inGame: true });
+      }
+    }
+  }
+
   io.emit('lobby:players', playerList);
 }
 
@@ -167,11 +186,12 @@ function cleanupGame(gameId) {
   if (!game) return;
   games.delete(gameId);
   broadcastGamesList();
+  emitPlayerList();
 }
 
 function findGameForPlayer(username) {
   for (const g of games.values()) {
-    if (g.players.has(username)) return g;
+    if (g.status !== 'finished' && g.players.has(username)) return g;
   }
   return null;
 }
@@ -303,6 +323,10 @@ io.on('connection', (socket) => {
       playerData.x = clampedX;
       playerData.y = clampedY;
       playerData.angle = data.angle;
+      playerData.crouching = !!data.crouching;
+      playerData.jumpZ = typeof data.jumpZ === 'number' ? Math.max(0, data.jumpZ) : 0;
+      playerData.moving = !!data.moving;
+      playerData.onGround = !!data.onGround;
 
       socket.to(roomName).emit('game:playerState', {
         username: socket.username,
@@ -310,7 +334,17 @@ io.on('connection', (socket) => {
         y: clampedY,
         angle: data.angle,
         health: playerData.health,
+        crouching: playerData.crouching,
+        jumpZ: playerData.jumpZ,
+        moving: playerData.moving,
+        onGround: playerData.onGround,
       });
+    });
+
+    // Player fired their weapon (for audio broadcast, separate from hit detection)
+    socket.on('game:fire', () => {
+      if (game.status !== 'playing' || !game.started || !playerData.alive) return;
+      socket.to(roomName).emit('game:playerFire', { username: socket.username });
     });
 
     // Shooting - client reports a hit
@@ -468,6 +502,8 @@ io.on('connection', (socket) => {
       kills: 0, deaths: 0, damageDealt: 0,
       socketId: null,
       spawn: null,
+      crouching: false,
+      jumpZ: 0,
     });
 
     games.set(game.id, game);
@@ -495,6 +531,8 @@ io.on('connection', (socket) => {
       kills: 0, deaths: 0, damageDealt: 0,
       socketId: null,
       spawn: null,
+      crouching: false,
+      jumpZ: 0,
     });
 
     // Notify all lobby users about the update
