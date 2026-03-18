@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TESTOSTERPWN: Operations</title>
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .mode-select {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  .mode-btn {
+    width: 340px;
+    padding: 24px 48px;
+    font-size: 20px;
+    text-align: center;
+  }
+  .mode-desc {
+    font-size: 11px;
+    color: #666;
+    letter-spacing: 1px;
+    margin-top: 6px;
+    text-shadow: none;
+  }
+  .header-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 12px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 10, 15, 0.9);
+    border-bottom: 1px solid rgba(0, 255, 255, 0.15);
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+  <span class="user-badge">OPERATOR: <span id="username-display">---</span></span>
+  <a href="#" class="link" id="logout-btn">[ DISCONNECT ]</a>
+</div>
+
+<div class="page-container">
+  <h1 class="title">Testosterpwn</h1>
+  <h2 class="subtitle">The Reckoning of Man</h2>
+
+  <div style="color: #0f0; font-size: 14px; letter-spacing: 3px; text-shadow: 0 0 10px rgba(0,255,0,0.4); margin-bottom: 10px;">
+    SELECT OPERATION MODE
+  </div>
+
+  <div class="mode-select">
+    <a href="/game.html" class="btn btn-cyan mode-btn">
+      Single Player
+      <div class="mode-desc">Solo combat simulation</div>
+    </a>
+    <a href="/lobby.html" class="btn btn-magenta mode-btn">
+      Multiplayer
+      <div class="mode-desc">Enter the operations lobby</div>
+    </a>
+  </div>
+</div>
+
+<script>
+// Auth check
+(async function checkAuth() {
+  const token = sessionStorage.getItem('tp_token');
+  if (!token) { window.location.href = '/'; return; }
+
+  try {
+    const res = await fetch('/api/verify', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!res.ok) {
+      sessionStorage.removeItem('tp_token');
+      sessionStorage.removeItem('tp_username');
+      window.location.href = '/';
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('username-display').textContent = data.username;
+  } catch (e) {
+    window.location.href = '/';
+  }
+})();
+
+// Logout
+document.getElementById('logout-btn').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const token = sessionStorage.getItem('tp_token');
+  try {
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+  } catch (e) { /* ignore */ }
+  sessionStorage.removeItem('tp_token');
+  sessionStorage.removeItem('tp_username');
+  window.location.href = '/';
+});
+</script>
+
+</body>
+</html>

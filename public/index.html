@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TESTOSTERPWN: Login</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div class="page-container">
+  <h1 class="title">Testosterpwn</h1>
+  <h2 class="subtitle">The Reckoning of Man</h2>
+
+  <div class="panel" style="width: 380px;">
+    <div class="tabs">
+      <button class="tab active" id="tab-login">Login</button>
+      <button class="tab" id="tab-register">Register</button>
+    </div>
+
+    <!-- Login Form -->
+    <form id="login-form">
+      <div class="form-group">
+        <label>Callsign</label>
+        <input type="text" id="login-username" placeholder="Enter callsign" autocomplete="username" autofocus>
+      </div>
+      <div class="form-group">
+        <label>Access Code</label>
+        <input type="password" id="login-password" placeholder="Enter access code" autocomplete="current-password">
+      </div>
+      <div class="error-msg" id="login-error"></div>
+      <div class="text-center mt-16">
+        <button type="submit" class="btn" id="login-btn">Access Terminal</button>
+      </div>
+    </form>
+
+    <!-- Register Form -->
+    <form id="register-form" style="display: none;">
+      <div class="form-group">
+        <label>Choose Callsign</label>
+        <input type="text" id="reg-username" placeholder="3-20 characters" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Set Access Code</label>
+        <input type="password" id="reg-password" placeholder="4+ characters" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>Confirm Access Code</label>
+        <input type="password" id="reg-confirm" placeholder="Repeat access code" autocomplete="new-password">
+      </div>
+      <div class="error-msg" id="reg-error"></div>
+      <div class="text-center mt-16">
+        <button type="submit" class="btn" id="reg-btn">Create Operator</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// Check if already logged in
+(async function checkAuth() {
+  const token = sessionStorage.getItem('tp_token');
+  if (!token) return;
+  try {
+    const res = await fetch('/api/verify', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (res.ok) {
+      window.location.href = '/menu.html';
+    } else {
+      sessionStorage.removeItem('tp_token');
+      sessionStorage.removeItem('tp_username');
+    }
+  } catch (e) { /* ignore */ }
+})();
+
+// Tab switching
+const tabLogin = document.getElementById('tab-login');
+const tabRegister = document.getElementById('tab-register');
+const loginForm = document.getElementById('login-form');
+const registerForm = document.getElementById('register-form');
+
+tabLogin.addEventListener('click', () => {
+  tabLogin.classList.add('active');
+  tabRegister.classList.remove('active');
+  loginForm.style.display = '';
+  registerForm.style.display = 'none';
+});
+
+tabRegister.addEventListener('click', () => {
+  tabRegister.classList.add('active');
+  tabLogin.classList.remove('active');
+  registerForm.style.display = '';
+  loginForm.style.display = 'none';
+});
+
+// Login
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+  errorEl.textContent = '';
+  btn.disabled = true;
+
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errorEl.textContent = data.error || 'Login failed';
+      btn.disabled = false;
+      return;
+    }
+    sessionStorage.setItem('tp_token', data.token);
+    sessionStorage.setItem('tp_username', data.username);
+    window.location.href = '/menu.html';
+  } catch (err) {
+    errorEl.textContent = 'Connection failed';
+    btn.disabled = false;
+  }
+});
+
+// Register
+registerForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('reg-error');
+  const btn = document.getElementById('reg-btn');
+  errorEl.textContent = '';
+  btn.disabled = true;
+
+  const username = document.getElementById('reg-username').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const confirm = document.getElementById('reg-confirm').value;
+
+  if (password !== confirm) {
+    errorEl.textContent = 'Access codes do not match';
+    btn.disabled = false;
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errorEl.textContent = data.error || 'Registration failed';
+      btn.disabled = false;
+      return;
+    }
+    sessionStorage.setItem('tp_token', data.token);
+    sessionStorage.setItem('tp_username', data.username);
+    window.location.href = '/menu.html';
+  } catch (err) {
+    errorEl.textContent = 'Connection failed';
+    btn.disabled = false;
+  }
+});
+</script>
+
+</body>
+</html>

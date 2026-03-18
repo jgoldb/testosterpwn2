@@ -1,0 +1,259 @@
+/* TESTOSTERPWN shared cyberpunk styles */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #000;
+  font-family: 'Courier New', monospace;
+  color: #ccc;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* Scanline overlay */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.03) 0px,
+    rgba(0, 0, 0, 0.03) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Glow animation */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes flicker {
+  0%, 95%, 100% { opacity: 1; }
+  96% { opacity: 0.8; }
+  97% { opacity: 1; }
+  98% { opacity: 0.6; }
+}
+
+/* Page container */
+.page-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+/* Title */
+.title {
+  font-size: 42px;
+  color: #0ff;
+  text-shadow: 0 0 20px #0ff, 0 0 40px #0ff, 0 0 80px #08f;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  text-align: center;
+  animation: flicker 4s infinite;
+}
+
+.subtitle {
+  font-size: 18px;
+  color: #f0a;
+  text-shadow: 0 0 10px #f0a, 0 0 30px #f0a;
+  letter-spacing: 8px;
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+/* Buttons */
+.btn {
+  font-family: 'Courier New', monospace;
+  font-size: 18px;
+  color: #0f0;
+  background: transparent;
+  border: 2px solid #0f0;
+  padding: 14px 48px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  transition: all 0.3s;
+  text-shadow: 0 0 10px #0f0;
+  box-shadow: 0 0 15px rgba(0, 255, 0, 0.3), inset 0 0 15px rgba(0, 255, 0, 0.1);
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn:hover {
+  background: rgba(0, 255, 0, 0.15);
+  box-shadow: 0 0 30px rgba(0, 255, 0, 0.5), inset 0 0 30px rgba(0, 255, 0, 0.2);
+}
+
+.btn-cyan {
+  color: #0ff;
+  border-color: #0ff;
+  text-shadow: 0 0 10px #0ff;
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.3), inset 0 0 15px rgba(0, 255, 255, 0.1);
+}
+
+.btn-cyan:hover {
+  background: rgba(0, 255, 255, 0.15);
+  box-shadow: 0 0 30px rgba(0, 255, 255, 0.5), inset 0 0 30px rgba(0, 255, 255, 0.2);
+}
+
+.btn-magenta {
+  color: #f0a;
+  border-color: #f0a;
+  text-shadow: 0 0 10px #f0a;
+  box-shadow: 0 0 15px rgba(255, 0, 170, 0.3), inset 0 0 15px rgba(255, 0, 170, 0.1);
+}
+
+.btn-magenta:hover {
+  background: rgba(255, 0, 170, 0.15);
+  box-shadow: 0 0 30px rgba(255, 0, 170, 0.5), inset 0 0 30px rgba(255, 0, 170, 0.2);
+}
+
+.btn-small {
+  font-size: 13px;
+  padding: 8px 20px;
+  letter-spacing: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Form elements */
+.form-group {
+  margin-bottom: 16px;
+  width: 100%;
+}
+
+.form-group label {
+  display: block;
+  color: #0ff;
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  text-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(0, 255, 255, 0.05);
+  border: 1px solid rgba(0, 255, 255, 0.3);
+  color: #0ff;
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  letter-spacing: 2px;
+  outline: none;
+  transition: all 0.3s;
+}
+
+.form-group input:focus {
+  border-color: #0ff;
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.2), inset 0 0 10px rgba(0, 255, 255, 0.05);
+  background: rgba(0, 255, 255, 0.08);
+}
+
+.form-group input::placeholder {
+  color: rgba(0, 255, 255, 0.25);
+}
+
+/* Error/status messages */
+.error-msg {
+  color: #f44;
+  font-size: 12px;
+  text-shadow: 0 0 8px rgba(255, 68, 68, 0.4);
+  min-height: 18px;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.success-msg {
+  color: #0f0;
+  font-size: 12px;
+  text-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
+  min-height: 18px;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+/* Panel / Card */
+.panel {
+  background: rgba(0, 20, 30, 0.85);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 30px rgba(0, 255, 255, 0.05), inset 0 0 30px rgba(0, 0, 0, 0.5);
+  padding: 30px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  margin-bottom: 24px;
+}
+
+.tab {
+  flex: 1;
+  padding: 10px;
+  text-align: center;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #555;
+  border-bottom: 2px solid #222;
+  transition: all 0.3s;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+
+.tab.active {
+  color: #0ff;
+  border-bottom-color: #0ff;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+.tab:hover:not(.active) {
+  color: #088;
+}
+
+/* Utility */
+.text-center { text-align: center; }
+.mt-16 { margin-top: 16px; }
+.mt-24 { margin-top: 24px; }
+.mt-40 { margin-top: 40px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-16 { margin-bottom: 16px; }
+.gap-16 { gap: 16px; }
+
+.link {
+  color: #555;
+  font-size: 12px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.3s;
+}
+
+.link:hover {
+  color: #0ff;
+}
+
+/* Username display */
+.user-badge {
+  color: #0f0;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 8px rgba(0, 255, 0, 0.3);
+}

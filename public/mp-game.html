@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TESTOSTERPWN: Multiplayer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+  }
+  #game-container { position: relative; }
+  #game-container.locked, #game-container.locked canvas,
+  body.locked { cursor: none; }
+
+  /* Countdown overlay */
+  #countdown-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 90;
+  }
+  #countdown-overlay .countdown-text {
+    font-size: 72px;
+    color: #0ff;
+    text-shadow: 0 0 30px #0ff, 0 0 60px #0ff;
+    letter-spacing: 10px;
+  }
+  #countdown-overlay .countdown-sub {
+    font-size: 16px;
+    color: #0f0;
+    text-shadow: 0 0 10px #0f0;
+    letter-spacing: 4px;
+    margin-top: 10px;
+  }
+
+  /* Death overlay */
+  #death-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(80,0,0,0.5);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 80;
+    pointer-events: none;
+  }
+  #death-overlay .death-text {
+    font-size: 36px;
+    color: #f44;
+    text-shadow: 0 0 20px #f44;
+    letter-spacing: 8px;
+  }
+  #death-overlay .death-sub {
+    font-size: 14px;
+    color: #f88;
+    letter-spacing: 3px;
+    margin-top: 10px;
+  }
+
+  /* Kill feed */
+  #kill-feed {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 70;
+    pointer-events: none;
+  }
+  .kill-feed-entry {
+    font-size: 12px;
+    color: #ccc;
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+    opacity: 1;
+    transition: opacity 0.5s;
+    text-shadow: 0 0 4px #000, 0 0 8px #000;
+  }
+  .kill-feed-entry .kf-killer { color: #0f0; }
+  .kill-feed-entry .kf-victim { color: #f44; }
+  .kill-feed-entry .kf-arrow { color: #ff0; }
+
+  /* Score screen overlay */
+  #score-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    cursor: default;
+  }
+  #score-overlay .score-title {
+    font-size: 36px;
+    letter-spacing: 8px;
+    margin-bottom: 8px;
+    text-shadow: 0 0 20px currentColor;
+  }
+  #score-overlay .score-title.victory { color: #0f0; }
+  #score-overlay .score-title.defeat { color: #f44; }
+  #score-overlay .score-title.draw { color: #ff0; }
+  #score-overlay .score-mode {
+    font-size: 14px;
+    color: #888;
+    letter-spacing: 3px;
+    margin-bottom: 24px;
+  }
+  .score-table {
+    border-collapse: collapse;
+    margin-bottom: 30px;
+  }
+  .score-table th {
+    color: #0ff;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border-bottom: 1px solid #0ff3;
+    text-align: left;
+  }
+  .score-table td {
+    font-size: 13px;
+    padding: 6px 16px;
+    border-bottom: 1px solid #1a1a2a;
+  }
+  .score-table .st-name { color: #ccc; }
+  .score-table .st-self { color: #0ff; font-weight: bold; }
+  .score-table .st-team0 { color: #0ff; }
+  .score-table .st-team1 { color: #f0a; }
+  .score-table .st-kills { color: #0f0; }
+  .score-table .st-deaths { color: #f44; }
+  .score-table .st-damage { color: #ff0; }
+  .score-lobby-btn {
+    font-family: 'Courier New', monospace;
+    font-size: 16px;
+    color: #0ff;
+    background: transparent;
+    border: 2px solid #0ff;
+    padding: 12px 36px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    transition: all 0.3s;
+    text-shadow: 0 0 10px #0ff;
+    box-shadow: 0 0 15px rgba(0,255,255,0.3);
+  }
+  .score-lobby-btn:hover {
+    background: rgba(0,255,255,0.15);
+    box-shadow: 0 0 30px rgba(0,255,255,0.5);
+  }
+
+  /* Player scoreboard HUD (top-right) */
+  #player-hud {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 60;
+    pointer-events: none;
+  }
+  .phud-entry {
+    font-size: 10px;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-shadow: 0 0 4px #000, 0 0 8px #000;
+  }
+  .phud-name { min-width: 70px; }
+  .phud-hp-bar {
+    width: 50px;
+    height: 4px;
+    background: #222;
+    position: relative;
+  }
+  .phud-hp-fill {
+    height: 100%;
+    transition: width 0.2s;
+  }
+  .phud-dead { text-decoration: line-through; opacity: 0.4; }
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <div id="countdown-overlay">
+    <div class="countdown-text" id="countdown-text">WAITING</div>
+    <div class="countdown-sub" id="countdown-sub">Loading players...</div>
+  </div>
+  <div id="death-overlay">
+    <div class="death-text">ELIMINATED</div>
+    <div class="death-sub">Waiting for match to end...</div>
+  </div>
+  <div id="kill-feed"></div>
+  <div id="player-hud"></div>
+  <div id="score-overlay">
+    <div class="score-title" id="score-title">VICTORY</div>
+    <div class="score-mode" id="score-mode"></div>
+    <table class="score-table" id="score-table"></table>
+    <button class="score-lobby-btn" onclick="window.location.href='/lobby.html'">Return to Lobby</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+// ========================================
+// Auth & game data check
+// ========================================
+const token = sessionStorage.getItem('tp_token');
+const mpUsername = sessionStorage.getItem('tp_username');
+const gameId = sessionStorage.getItem('tp_gameId');
+const spawnData = JSON.parse(sessionStorage.getItem('tp_spawnData') || 'null');
+const gameMode = sessionStorage.getItem('tp_gameMode');
+const friendlyFire = sessionStorage.getItem('tp_friendlyFire') === '1';
+
+if (!token || !mpUsername || !gameId || !spawnData) {
+  window.location.href = '/lobby.html';
+}
+
+// Clean up session storage
+sessionStorage.removeItem('tp_gameId');
+sessionStorage.removeItem('tp_spawnData');
+sessionStorage.removeItem('tp_gameMode');
+sessionStorage.removeItem('tp_friendlyFire');
+
+// =============================================
+// TESTOSTERPWN: MULTIPLAYER
+// =============================================
+
+const SCREEN_W = 960;
+const SCREEN_H = 600;
+const RENDER_W = 480;
+const RENDER_H = 300;
+const TEX_SIZE = 64;
+const FOV = Math.PI / 3;
+const HALF_FOV = FOV / 2;
+const NUM_RAYS = RENDER_W;
+const MAX_DEPTH = 30;
+
+const MAP = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,2,2,2,0,0,0,3,3,3,3,3,0,0,0,4,4,4,0,0,0,1],
+  [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
+  [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,1],
+  [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
+  [1,0,0,6,0,0,0,0,0,0,6,0,6,0,0,0,0,0,0,6,0,0,0,1],
+  [1,0,0,6,0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,6,0,0,0,1],
+  [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
+  [1,0,0,2,2,0,0,0,0,4,4,0,0,4,4,0,0,0,0,2,2,0,0,1],
+  [1,0,0,0,2,0,0,0,0,4,0,0,0,0,4,0,0,0,2,0,0,0,0,1],
+  [1,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+];
+const MAP_H = MAP.length;
+const MAP_W = MAP[0].length;
+
+// Player colors by team/slot
+const PLAYER_COLORS = {
+  team0: { body: '#0ff', eye: '#f00', glow: '0,255,255', name: 'Cyan' },
+  team1: { body: '#f0a', eye: '#ff0', glow: '255,0,170', name: 'Magenta' },
+  ffa: [
+    { body: '#0ff', eye: '#f00', glow: '0,255,255', name: 'Cyan' },
+    { body: '#f0a', eye: '#ff0', glow: '255,0,170', name: 'Magenta' },
+    { body: '#f80', eye: '#ff0', glow: '255,136,0', name: 'Orange' },
+    { body: '#0f0', eye: '#f00', glow: '0,255,0', name: 'Green' },
+  ],
+};
+
+// My spawn
+const mySpawn = spawnData[mpUsername];
+if (!mySpawn) window.location.href = '/lobby.html';
+
+// Determine my team
+const myTeam = mySpawn.team;
+
+// Player state
+const player = {
+  x: mySpawn.x, y: mySpawn.y, angle: mySpawn.angle, pitch: 0,
+  speed: 0.04, sprintSpeed: 0.07, rotSpeed: 0.004,
+  health: 100, armor: 0, ammo: 250,
+  bobPhase: 0, bobAmount: 0,
+  shooting: false, shootTimer: 0, shootCooldown: 8,
+  muzzleFlash: 0, weaponKick: 0, damageFlash: 0,
+  alive: true,
+};
+
+// Remote players: username -> { x, y, angle, targetX, targetY, targetAngle, health, alive, team, color, hitFlash }
+const remotePlayers = new Map();
+
+// Init remote players from spawnData
+const playerOrder = Object.keys(spawnData);
+for (const [name, sd] of Object.entries(spawnData)) {
+  if (name === mpUsername) continue;
+
+  let color;
+  if (gameMode === '2v2') {
+    color = sd.team === 0 ? PLAYER_COLORS.team0 : PLAYER_COLORS.team1;
+  } else {
+    const idx = playerOrder.indexOf(name);
+    color = PLAYER_COLORS.ffa[idx % PLAYER_COLORS.ffa.length];
+  }
+
+  remotePlayers.set(name, {
+    x: sd.x, y: sd.y, angle: sd.angle,
+    targetX: sd.x, targetY: sd.y, targetAngle: sd.angle,
+    health: 100, alive: true,
+    team: sd.team, color,
+    hitFlash: 0,
+  });
+}
+
+// ========================================
+// Procedural generation
+// ========================================
+
+function generateTextures() {
+  const textures = {};
+  const types = {
+    1: { base: [20, 30, 40], accent: [0, 255, 255] },
+    2: { base: [40, 15, 15], accent: [255, 50, 50] },
+    3: { base: [15, 35, 20], accent: [0, 255, 100] },
+    4: { base: [35, 25, 10], accent: [255, 160, 0] },
+    5: { base: [30, 20, 40], accent: [180, 50, 255] },
+    6: { base: [15, 25, 35], accent: [50, 150, 255] },
+  };
+  for (const [id, t] of Object.entries(types)) {
+    const c = document.createElement('canvas');
+    c.width = TEX_SIZE; c.height = TEX_SIZE;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = `rgb(${t.base[0]},${t.base[1]},${t.base[2]})`;
+    ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
+    ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.15)`;
+    ctx.lineWidth = 1;
+    for (let i = 0; i < TEX_SIZE; i += 16) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, TEX_SIZE); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(TEX_SIZE, i); ctx.stroke();
+    }
+    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.6)`;
+    ctx.fillRect(0, 30, TEX_SIZE, 2);
+    ctx.fillRect(0, 50, TEX_SIZE, 1);
+    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.3)`;
+    ctx.fillRect(0, 29, TEX_SIZE, 1);
+    ctx.fillRect(0, 32, TEX_SIZE, 1);
+    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.4)`;
+    ctx.fillRect(4, 4, 8, 8); ctx.fillRect(52, 4, 8, 8);
+    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.8)`;
+    ctx.fillRect(6, 6, 4, 4); ctx.fillRect(54, 6, 4, 4);
+    const imgData = ctx.getImageData(0, 0, TEX_SIZE, TEX_SIZE);
+    for (let p = 0; p < imgData.data.length; p += 4) {
+      const n = (Math.random() - 0.5) * 12;
+      imgData.data[p] = Math.max(0, Math.min(255, imgData.data[p] + n));
+      imgData.data[p+1] = Math.max(0, Math.min(255, imgData.data[p+1] + n));
+      imgData.data[p+2] = Math.max(0, Math.min(255, imgData.data[p+2] + n));
+    }
+    ctx.putImageData(imgData, 0, 0);
+    textures[id] = ctx.getImageData(0, 0, TEX_SIZE, TEX_SIZE);
+  }
+  return textures;
+}
+
+function generatePlayerSprite(colorCfg) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  const cx = 32, cy = 32, w = 36, bodyColor = colorCfg.body, eyeColor = colorCfg.eye, glowColor = colorCfg.glow;
+
+  const grd = ctx.createRadialGradient(cx, cy + 4, 2, cx, cy + 4, w * 0.7);
+  grd.addColorStop(0, `rgba(${glowColor},0.3)`);
+  grd.addColorStop(1, `rgba(${glowColor},0)`);
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 64, 64);
+
+  ctx.fillStyle = '#333';
+  ctx.fillRect(cx - 8, cy + 16, 5, 12);
+  ctx.fillRect(cx + 3, cy + 16, 5, 12);
+  ctx.fillStyle = bodyColor;
+  ctx.fillRect(cx - 7, cy + 26, 3, 2);
+  ctx.fillRect(cx + 4, cy + 26, 3, 2);
+
+  ctx.fillStyle = '#222';
+  ctx.fillRect(cx - w/2 + 8, cy - 8, w - 16, 26);
+  ctx.fillStyle = bodyColor;
+  ctx.strokeStyle = bodyColor;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cx - w/2 + 8, cy - 8, w - 16, 26);
+
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath(); ctx.arc(cx, cy + 4, 4, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(cx - 10, cy - 20, 20, 14);
+  ctx.fillStyle = eyeColor;
+  ctx.fillRect(cx - 7, cy - 16, 5, 4);
+  ctx.fillRect(cx + 2, cy - 16, 5, 4);
+
+  ctx.fillStyle = '#333';
+  ctx.fillRect(cx - w/2 + 2, cy - 6, 7, 12);
+  ctx.fillRect(cx + w/2 - 9, cy - 6, 7, 12);
+  ctx.fillStyle = bodyColor;
+  ctx.fillRect(cx - w/2 + 3, cy - 4, 5, 2);
+  ctx.fillRect(cx + w/2 - 8, cy - 4, 5, 2);
+
+  ctx.fillStyle = '#444';
+  ctx.fillRect(cx + w/2 - 6, cy, 14, 4);
+  ctx.fillStyle = eyeColor;
+  ctx.fillRect(cx + w/2 + 6, cy, 3, 4);
+
+  return { canvas, data: ctx.getImageData(0, 0, 64, 64) };
+}
+
+// ========================================
+// Game engine state
+// ========================================
+let wallTextures;
+let playerSprites = {}; // keyed by username
+let gameActive = false;
+let gameOver = false;
+let keys = {};
+let renderTex, renderCtx, depthBuffer, frameImgData;
+
+// ========================================
+// Phaser setup
+// ========================================
+const config = {
+  type: Phaser.CANVAS,
+  width: SCREEN_W, height: SCREEN_H,
+  parent: 'game-container',
+  backgroundColor: '#000000',
+  scene: { preload: function(){}, create: gameCreate, update: gameUpdate },
+  audio: { noAudio: true },
+  banner: false,
+  fps: { target: 60, forceSetTimeOut: false },
+  render: { pixelArt: true, antialias: false },
+};
+const game = new Phaser.Game(config);
+
+function gameCreate() {
+  wallTextures = generateTextures();
+
+  // Generate sprites for each remote player
+  for (const [name, rp] of remotePlayers) {
+    playerSprites[name] = generatePlayerSprite(rp.color);
+  }
+
+  const renderCanvas = document.createElement('canvas');
+  renderCanvas.width = RENDER_W; renderCanvas.height = RENDER_H;
+  renderCtx = renderCanvas.getContext('2d', { willReadFrequently: true });
+  depthBuffer = new Float32Array(RENDER_W);
+
+  this.textures.addCanvas('render', renderCanvas);
+  renderTex = this.add.image(SCREEN_W / 2, SCREEN_H / 2, 'render');
+  renderTex.setDisplaySize(SCREEN_W, SCREEN_H);
+
+  try { this.input.mouse.enabled = false; } catch(e) {}
+  try { game.input.mouse.enabled = false; } catch(e) {}
+
+  const gameCanvas = game.canvas;
+  const container = document.getElementById('game-container');
+
+  document.addEventListener('keydown', (e) => {
+    if (!gameActive || gameOver) return;
+    if (e.code === 'Tab') { e.preventDefault(); showMap = !showMap; return; }
+    keys[e.code] = true;
+  }, true);
+  document.addEventListener('keyup', (e) => { keys[e.code] = false; }, true);
+
+  const MAX_PITCH = RENDER_H * 0.75;
+  document.addEventListener('mousemove', (e) => {
+    if (!gameActive || !player.alive || gameOver) return;
+    if (document.pointerLockElement === gameCanvas) {
+      player.angle += e.movementX * player.rotSpeed;
+      player.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH,
+        player.pitch - e.movementY * player.rotSpeed * 450));
+    }
+  }, true);
+
+  document.addEventListener('mousedown', (e) => {
+    if (!gameActive || !player.alive || gameOver) return;
+    if (!document.pointerLockElement) {
+      try { gameCanvas.requestPointerLock(); } catch(e) {}
+      return;
+    }
+    player.shooting = true;
+  }, true);
+  document.addEventListener('mouseup', () => { player.shooting = false; }, true);
+
+  document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement !== gameCanvas) {
+      player.shooting = false;
+      keys = {};
+    }
+  });
+
+  // Signal ready to server
+  socket.emit('game:ready');
+}
+
+let showMap = false;
+
+function gameUpdate(time, delta) {
+  const dt = delta / 16.666;
+
+  if (gameActive && player.alive && !gameOver) {
+    handleMovement(dt);
+    handleShooting(dt);
+  } else {
+    // Still tick down visual timers
+    if (player.muzzleFlash > 0) player.muzzleFlash -= dt;
+    if (player.weaponKick > 0) player.weaponKick -= dt * 0.3;
+    if (player.damageFlash > 0) player.damageFlash -= dt;
+  }
+
+  // Interpolate remote players
+  for (const rp of remotePlayers.values()) {
+    rp.x += (rp.targetX - rp.x) * 0.3;
+    rp.y += (rp.targetY - rp.y) * 0.3;
+    // Angle interpolation (handle wrap-around)
+    let angleDiff = rp.targetAngle - rp.angle;
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+    rp.angle += angleDiff * 0.3;
+    if (rp.hitFlash > 0) rp.hitFlash -= dt;
+  }
+
+  castRays();
+  renderRemotePlayers();
+  renderCtx.putImageData(frameImgData, 0, 0);
+  if (player.alive) renderWeapon();
+  renderHUD();
+  if (showMap) renderMinimap();
+
+  this.textures.get('render').update();
+}
+
+// ========================================
+// Movement (same as single player)
+// ========================================
+function handleMovement(dt) {
+  const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
+  const speed = (sprint ? player.sprintSpeed : player.speed) * dt;
+  let moving = false;
+  let dx = 0, dy = 0;
+
+  if (keys['KeyW']) { dx += Math.cos(player.angle) * speed; dy += Math.sin(player.angle) * speed; moving = true; }
+  if (keys['KeyS']) { dx -= Math.cos(player.angle) * speed; dy -= Math.sin(player.angle) * speed; moving = true; }
+  if (keys['KeyA']) { dx += Math.cos(player.angle - Math.PI/2) * speed; dy += Math.sin(player.angle - Math.PI/2) * speed; moving = true; }
+  if (keys['KeyD']) { dx += Math.cos(player.angle + Math.PI/2) * speed; dy += Math.sin(player.angle + Math.PI/2) * speed; moving = true; }
+
+  const r = 0.2;
+  if (MAP[Math.floor(player.y)][Math.floor(player.x + dx + Math.sign(dx) * r)] === 0) player.x += dx;
+  if (MAP[Math.floor(player.y + dy + Math.sign(dy) * r)][Math.floor(player.x)] === 0) player.y += dy;
+
+  if (moving) {
+    player.bobPhase += (sprint ? 0.18 : 0.12) * dt;
+    player.bobAmount = Math.min(player.bobAmount + 0.1 * dt, 1);
+  } else {
+    player.bobAmount = Math.max(player.bobAmount - 0.08 * dt, 0);
+  }
+}
+
+// ========================================
+// Shooting
+// ========================================
+function handleShooting(dt) {
+  if (player.shootTimer > 0) player.shootTimer -= dt;
+  if (player.muzzleFlash > 0) player.muzzleFlash -= dt;
+  if (player.weaponKick > 0) player.weaponKick -= dt * 0.3;
+  if (player.damageFlash > 0) player.damageFlash -= dt;
+
+  if (player.shooting && player.shootTimer <= 0 && player.ammo > 0) {
+    player.ammo--;
+    player.shootTimer = player.shootCooldown;
+    player.muzzleFlash = 4;
+    player.weaponKick = 6;
+
+    const hit = castHitscan();
+    if (hit) {
+      socket.emit('game:shoot', { target: hit.username });
+    }
+  }
+}
+
+function castHitscan() {
+  let closest = null;
+  let closestDist = Infinity;
+  const cx = RENDER_W / 2;
+
+  for (const [name, rp] of remotePlayers) {
+    if (!rp.alive) continue;
+    const dx = rp.x - player.x;
+    const dy = rp.y - player.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    let angle = Math.atan2(dy, dx) - player.angle;
+    while (angle > Math.PI) angle -= 2 * Math.PI;
+    while (angle < -Math.PI) angle += 2 * Math.PI;
+
+    if (Math.abs(angle) < FOV / 2) {
+      const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
+      const spriteH = Math.min(RENDER_H, RENDER_H / dist);
+      const halfW = spriteH * 0.4;
+      if (cx >= screenX - halfW && cx <= screenX + halfW && dist < closestDist) {
+        if (hasLineOfSight(player.x, player.y, rp.x, rp.y)) {
+          closestDist = dist;
+          closest = { username: name, dist };
+        }
+      }
+    }
+  }
+  return closest;
+}
+
+function hasLineOfSight(x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const steps = Math.ceil(dist * 4);
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const mx = Math.floor(x0 + dx * t);
+    const my = Math.floor(y0 + dy * t);
+    if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return false;
+    if (MAP[my][mx] > 0) return false;
+  }
+  return true;
+}
+
+// ========================================
+// Raycasting (same as single player)
+// ========================================
+function castRays() {
+  const imgData = renderCtx.createImageData(RENDER_W, RENDER_H);
+  const data = imgData.data;
+  const horizonY = RENDER_H / 2 + player.pitch;
+
+  for (let y = 0; y < RENDER_H; y++) {
+    let r, g, b;
+    if (y < horizonY) {
+      const t = Math.max(0, Math.min(1, 1 - y / Math.max(1, horizonY)));
+      r = Math.floor(5 + t * 8); g = Math.floor(8 + t * 15); b = Math.floor(15 + t * 25);
+    } else {
+      const t = Math.max(0, Math.min(1, (y - horizonY) / Math.max(1, RENDER_H - horizonY)));
+      r = Math.floor(8 + t * 12); g = Math.floor(12 + t * 8); b = Math.floor(10 + t * 5);
+    }
+    for (let x = 0; x < RENDER_W; x++) {
+      const idx = (y * RENDER_W + x) * 4;
+      data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+    }
+  }
+
+  for (let i = 0; i < NUM_RAYS; i++) {
+    const rayAngle = player.angle - HALF_FOV + (i / NUM_RAYS) * FOV;
+    const sin = Math.sin(rayAngle), cos = Math.cos(rayAngle);
+    let wallType = 0, side = 0;
+    let mapX = Math.floor(player.x), mapY = Math.floor(player.y);
+    const deltaDistX = Math.abs(1 / (cos || 0.0001));
+    const deltaDistY = Math.abs(1 / (sin || 0.0001));
+    const stepX = cos >= 0 ? 1 : -1, stepY = sin >= 0 ? 1 : -1;
+    let sideDistX = cos >= 0 ? (mapX + 1 - player.x) * deltaDistX : (player.x - mapX) * deltaDistX;
+    let sideDistY = sin >= 0 ? (mapY + 1 - player.y) * deltaDistY : (player.y - mapY) * deltaDistY;
+    let hit = false;
+    for (let step = 0; step < 64; step++) {
+      if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+      else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+      if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
+      if (MAP[mapY][mapX] > 0) { wallType = MAP[mapY][mapX]; hit = true; break; }
+    }
+    if (!hit) { depthBuffer[i] = MAX_DEPTH; continue; }
+
+    let dist;
+    if (side === 0) dist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
+    else dist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
+    dist = Math.max(dist, 0.01);
+    depthBuffer[i] = dist;
+
+    const lineHeight = Math.floor(RENDER_H / dist);
+    const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
+    const horizon = RENDER_H / 2 + player.pitch + bobOffset;
+    const drawStart = Math.floor(horizon - lineHeight / 2);
+    const drawEnd = Math.floor(horizon + lineHeight / 2);
+
+    let wallX;
+    if (side === 0) wallX = player.y + dist * sin;
+    else wallX = player.x + dist * cos;
+    wallX -= Math.floor(wallX);
+    let texX = Math.floor(wallX * TEX_SIZE);
+    if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) texX = TEX_SIZE - texX - 1;
+
+    const tex = wallTextures[wallType];
+    if (!tex) continue;
+
+    const yStart = Math.max(0, drawStart);
+    const yEnd = Math.min(RENDER_H - 1, drawEnd);
+    const fogFactor = Math.min(1, dist / MAX_DEPTH);
+
+    for (let y = yStart; y <= yEnd; y++) {
+      const texY = Math.floor(((y - drawStart) / lineHeight) * TEX_SIZE) & (TEX_SIZE - 1);
+      const texIdx = (texY * TEX_SIZE + texX) * 4;
+      let r = tex.data[texIdx], g = tex.data[texIdx + 1], b = tex.data[texIdx + 2];
+      if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
+      r = Math.floor(r * (1 - fogFactor * 0.85));
+      g = Math.floor(g * (1 - fogFactor * 0.85));
+      b = Math.floor(b * (1 - fogFactor * 0.85));
+      const idx = (y * RENDER_W + i) * 4;
+      data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+    }
+  }
+  frameImgData = imgData;
+}
+
+// ========================================
+// Render remote players (replaces renderNPCs)
+// ========================================
+function renderRemotePlayers() {
+  if (!frameImgData) return;
+  const data = frameImgData.data;
+
+  const sorted = [];
+  for (const [name, rp] of remotePlayers) {
+    if (!rp.alive) continue;
+    const dx = rp.x - player.x, dy = rp.y - player.y;
+    sorted.push({ dist: Math.sqrt(dx*dx + dy*dy), dx, dy, ref: rp, username: name });
+  }
+  sorted.sort((a, b) => b.dist - a.dist);
+
+  const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
+
+  for (const rp of sorted) {
+    let angle = Math.atan2(rp.dy, rp.dx) - player.angle;
+    while (angle > Math.PI) angle -= 2*Math.PI;
+    while (angle < -Math.PI) angle += 2*Math.PI;
+    if (Math.abs(angle) > HALF_FOV + 0.2) continue;
+    if (rp.dist < 0.3) continue;
+
+    const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
+    const spriteH = Math.min(RENDER_H * 1.5, (RENDER_H / rp.dist) * 0.8);
+    const spriteW = spriteH * 0.7;
+    const spriteTop = RENDER_H / 2 - spriteH / 2 + bobOffset + player.pitch;
+
+    const spriteInfo = playerSprites[rp.username];
+    if (!spriteInfo) continue;
+    const spriteData = spriteInfo.data.data;
+
+    const startX = Math.floor(screenX - spriteW / 2);
+    const endX = Math.floor(screenX + spriteW / 2);
+    const startY = Math.max(0, Math.floor(spriteTop));
+    const endY = Math.min(RENDER_H - 1, Math.floor(spriteTop + spriteH));
+
+    const fogFactor = Math.min(0.85, rp.dist / MAX_DEPTH);
+    const brightness = 1 - fogFactor;
+    const flashIntensity = rp.ref.hitFlash > 0 ? Math.min(1, rp.ref.hitFlash / 5) : 0;
+
+    for (let sx = startX; sx < endX; sx++) {
+      if (sx < 0 || sx >= RENDER_W) continue;
+      if (rp.dist >= depthBuffer[sx]) continue;
+      const texX = Math.floor(((sx - startX) / (endX - startX)) * 64);
+      if (texX < 0 || texX >= 64) continue;
+
+      for (let sy = startY; sy <= endY; sy++) {
+        const texY = Math.floor(((sy - spriteTop) / spriteH) * 64);
+        if (texY < 0 || texY >= 64) continue;
+        const srcIdx = (texY * 64 + texX) * 4;
+        const sr = spriteData[srcIdx], sg = spriteData[srcIdx+1], sb = spriteData[srcIdx+2], sa = spriteData[srcIdx+3];
+        if (sa < 10) continue;
+        const dstIdx = (sy * RENDER_W + sx) * 4;
+        const alpha = sa / 255;
+        let r = sr * brightness, g = sg * brightness, b = sb * brightness;
+        if (flashIntensity > 0) {
+          r += (255 - r) * flashIntensity * 0.6;
+          g += (255 - g) * flashIntensity * 0.6;
+          b += (255 - b) * flashIntensity * 0.6;
+        }
+        data[dstIdx]     = Math.floor(data[dstIdx]     * (1 - alpha) + r * alpha);
+        data[dstIdx + 1] = Math.floor(data[dstIdx + 1] * (1 - alpha) + g * alpha);
+        data[dstIdx + 2] = Math.floor(data[dstIdx + 2] * (1 - alpha) + b * alpha);
+      }
+    }
+  }
+}
+
+// ========================================
+// Weapon rendering (same as single player)
+// ========================================
+function renderWeapon() {
+  const cx = RENDER_W / 2;
+  const bobX = Math.sin(player.bobPhase) * 4 * player.bobAmount;
+  const bobY = Math.abs(Math.cos(player.bobPhase)) * 3 * player.bobAmount;
+  const kickY = player.weaponKick * 3;
+  const baseX = cx + bobX, baseY = RENDER_H - 10 + bobY + kickY;
+
+  renderCtx.save();
+  renderCtx.fillStyle = '#1a1a2e';
+  renderCtx.fillRect(baseX - 12, baseY - 60, 24, 60);
+  renderCtx.fillStyle = '#16213e';
+  renderCtx.fillRect(baseX - 6, baseY - 90, 12, 35);
+  const pulse = Math.sin(Date.now() * 0.008) * 0.3 + 0.7;
+  renderCtx.fillStyle = `rgba(0, 255, 255, ${pulse})`;
+  renderCtx.fillRect(baseX - 4, baseY - 50, 8, 15);
+  renderCtx.fillStyle = '#0a0a1a';
+  renderCtx.fillRect(baseX - 16, baseY - 55, 4, 40);
+  renderCtx.fillRect(baseX + 12, baseY - 55, 4, 40);
+  renderCtx.fillStyle = '#0ff';
+  renderCtx.globalAlpha = 0.7;
+  renderCtx.fillRect(baseX - 15, baseY - 52, 2, 10);
+  renderCtx.fillRect(baseX + 13, baseY - 52, 2, 10);
+  renderCtx.globalAlpha = 1;
+
+  if (player.muzzleFlash > 0) {
+    const flashSize = player.muzzleFlash * 8;
+    renderCtx.globalAlpha = player.muzzleFlash / 4;
+    renderCtx.fillStyle = '#fff';
+    renderCtx.beginPath(); renderCtx.arc(baseX, baseY - 90, flashSize, 0, Math.PI * 2); renderCtx.fill();
+    renderCtx.fillStyle = '#0ff';
+    renderCtx.beginPath(); renderCtx.arc(baseX, baseY - 90, flashSize * 1.5, 0, Math.PI * 2); renderCtx.fill();
+    renderCtx.globalAlpha = 1;
+  }
+  renderCtx.restore();
+
+  // Crosshair
+  renderCtx.save();
+  renderCtx.strokeStyle = '#0ff';
+  renderCtx.lineWidth = 1;
+  renderCtx.globalAlpha = 0.8;
+  const chx = RENDER_W / 2, chy = RENDER_H / 2;
+  const gap = 4, len = 8;
+  renderCtx.beginPath();
+  renderCtx.moveTo(chx - gap - len, chy); renderCtx.lineTo(chx - gap, chy);
+  renderCtx.moveTo(chx + gap, chy); renderCtx.lineTo(chx + gap + len, chy);
+  renderCtx.moveTo(chx, chy - gap - len); renderCtx.lineTo(chx, chy - gap);
+  renderCtx.moveTo(chx, chy + gap); renderCtx.lineTo(chx, chy + gap + len);
+  renderCtx.stroke();
+  renderCtx.fillStyle = '#0ff';
+  renderCtx.fillRect(chx - 1, chy - 1, 2, 2);
+  renderCtx.restore();
+}
+
+// ========================================
+// HUD
+// ========================================
+function renderHUD() {
+  const ctx = renderCtx;
+  ctx.save();
+
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, RENDER_H - 30, RENDER_W, 30);
+  ctx.fillStyle = 'rgba(0,255,255,0.15)';
+  ctx.fillRect(0, RENDER_H - 30, RENDER_W, 1);
+  ctx.font = '8px monospace';
+
+  // Health
+  ctx.fillStyle = player.health > 30 ? '#0f0' : '#f00';
+  ctx.fillText('HP', 8, RENDER_H - 18);
+  ctx.fillStyle = '#111';
+  ctx.fillRect(24, RENDER_H - 24, 80, 10);
+  ctx.fillStyle = player.health > 30 ? '#0f0' : '#f00';
+  ctx.fillRect(24, RENDER_H - 24, Math.max(0, player.health) * 0.8, 10);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(`${Math.max(0, player.health)}`, 28, RENDER_H - 16);
+
+  // Ammo
+  ctx.fillStyle = '#ff0';
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText(`${player.ammo}`, RENDER_W - 50, RENDER_H - 10);
+  ctx.font = '7px monospace';
+  ctx.fillStyle = '#888';
+  ctx.fillText('PLASMA', RENDER_W - 52, RENDER_H - 22);
+
+  // Mode indicator
+  ctx.fillStyle = '#0ff';
+  ctx.font = '8px monospace';
+  ctx.fillText(gameMode.toUpperCase(), RENDER_W / 2 - 10, RENDER_H - 18);
+
+  // Alive count
+  const aliveCount = Array.from(remotePlayers.values()).filter(rp => rp.alive).length + (player.alive ? 1 : 0);
+  ctx.fillStyle = '#f0a';
+  ctx.fillText(`ALIVE: ${aliveCount}`, RENDER_W / 2 - 14, RENDER_H - 6);
+
+  // Damage flash
+  if (player.damageFlash > 0) {
+    ctx.fillStyle = `rgba(255,0,0,${player.damageFlash * 0.1})`;
+    ctx.fillRect(0, 0, RENDER_W, RENDER_H);
+  }
+  if (player.muzzleFlash > 2) {
+    ctx.fillStyle = `rgba(0,255,255,${(player.muzzleFlash - 2) * 0.04})`;
+    ctx.fillRect(0, 0, RENDER_W, RENDER_H);
+  }
+
+  ctx.restore();
+}
+
+// ========================================
+// Minimap
+// ========================================
+function renderMinimap() {
+  const ctx = renderCtx;
+  const size = 3, ox = 6, oy = 6;
+  ctx.save();
+  ctx.globalAlpha = 0.75;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(ox - 2, oy - 2, MAP_W * size + 4, MAP_H * size + 4);
+  ctx.strokeStyle = '#0ff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ox - 2, oy - 2, MAP_W * size + 4, MAP_H * size + 4);
+
+  const wallColors = { 1: '#088', 2: '#800', 3: '#080', 4: '#860', 5: '#408', 6: '#068' };
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (MAP[y][x] > 0) {
+        ctx.fillStyle = wallColors[MAP[y][x]] || '#444';
+        ctx.fillRect(ox + x * size, oy + y * size, size, size);
+      }
+    }
+  }
+
+  // Remote players on map (teammates only in 2v2)
+  for (const [name, rp] of remotePlayers) {
+    if (!rp.alive) continue;
+    if (gameMode === '2v2' && rp.team !== myTeam) continue;
+    ctx.fillStyle = rp.color.body;
+    ctx.fillRect(ox + rp.x * size - 1, oy + rp.y * size - 1, 3, 3);
+  }
+
+  // Self
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(ox + player.x * size - 1.5, oy + player.y * size - 1.5, 3, 3);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ox + player.x * size, oy + player.y * size);
+  ctx.lineTo(ox + (player.x + Math.cos(player.angle) * 2) * size,
+             oy + (player.y + Math.sin(player.angle) * 2) * size);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ========================================
+// Player HUD (top-right health bars)
+// ========================================
+function updatePlayerHUD() {
+  const hud = document.getElementById('player-hud');
+  let html = '';
+
+  // All players including self
+  const allPlayers = [
+    { username: mpUsername, health: player.health, alive: player.alive, team: myTeam, self: true },
+    ...Array.from(remotePlayers.entries()).map(([name, rp]) => ({
+      username: name, health: rp.health, alive: rp.alive, team: rp.team, self: false,
+      color: rp.color,
+    })),
+  ];
+
+  // Sort: self first, then by team, then by name
+  allPlayers.sort((a, b) => {
+    if (a.self) return -1;
+    if (b.self) return 1;
+    if (a.team !== b.team) return a.team - b.team;
+    return a.username.localeCompare(b.username);
+  });
+
+  for (const p of allPlayers) {
+    let nameColor;
+    if (gameMode === '2v2') nameColor = p.team === 0 ? '#0ff' : '#f0a';
+    else if (p.self) nameColor = '#fff';
+    else nameColor = p.color ? p.color.body : '#0f0';
+
+    const hpPct = Math.max(0, p.health);
+    const hpColor = p.health > 30 ? '#0f0' : '#f44';
+    const deadClass = p.alive ? '' : ' phud-dead';
+
+    html += '<div class="phud-entry' + deadClass + '">' +
+      '<span class="phud-name" style="color:' + nameColor + '">' + escapeHtml(p.username) + '</span>' +
+      '<div class="phud-hp-bar"><div class="phud-hp-fill" style="width:' + hpPct + '%;background:' + hpColor + '"></div></div>' +
+    '</div>';
+  }
+
+  hud.innerHTML = html;
+}
+
+// ========================================
+// Kill feed
+// ========================================
+function addKillFeedEntry(killer, victim) {
+  const feed = document.getElementById('kill-feed');
+  const el = document.createElement('div');
+  el.className = 'kill-feed-entry';
+  if (killer) {
+    el.innerHTML = '<span class="kf-killer">' + escapeHtml(killer) + '</span>' +
+      ' <span class="kf-arrow">&gt;</span> ' +
+      '<span class="kf-victim">' + escapeHtml(victim) + '</span>';
+  } else {
+    el.innerHTML = '<span class="kf-victim">' + escapeHtml(victim) + '</span> disconnected';
+  }
+  feed.appendChild(el);
+
+  // Fade out after 5 seconds
+  setTimeout(() => {
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 500);
+  }, 5000);
+}
+
+// ========================================
+// Score screen
+// ========================================
+function showScoreScreen(result, stats, mode) {
+  const overlay = document.getElementById('score-overlay');
+  const titleEl = document.getElementById('score-title');
+  const modeEl = document.getElementById('score-mode');
+  const tableEl = document.getElementById('score-table');
+
+  // Determine if we won
+  let titleText, titleClass;
+  if (mode === '2v2') {
+    if (result.winnerTeam === myTeam) {
+      titleText = 'VICTORY'; titleClass = 'victory';
+    } else {
+      titleText = 'DEFEAT'; titleClass = 'defeat';
+    }
+  } else {
+    if (result.winner === mpUsername) {
+      titleText = 'VICTORY'; titleClass = 'victory';
+    } else if (result.winner === null) {
+      titleText = 'DRAW'; titleClass = 'draw';
+    } else {
+      titleText = 'DEFEAT'; titleClass = 'defeat';
+    }
+  }
+
+  titleEl.textContent = titleText;
+  titleEl.className = 'score-title ' + titleClass;
+  modeEl.textContent = mode.toUpperCase() + ' MATCH';
+
+  // Build table
+  let html = '<thead><tr><th>Operator</th>' +
+    (mode === '2v2' ? '<th>Team</th>' : '') +
+    '<th>Kills</th><th>Deaths</th><th>Damage</th></tr></thead><tbody>';
+
+  stats.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  for (const s of stats) {
+    const isSelf = s.username === mpUsername;
+    const nameClass = isSelf ? 'st-self' : (mode === '2v2' ? (s.team === 0 ? 'st-team0' : 'st-team1') : 'st-name');
+    html += '<tr>' +
+      '<td class="' + nameClass + '">' + escapeHtml(s.username) + '</td>' +
+      (mode === '2v2' ? '<td class="' + (s.team === 0 ? 'st-team0' : 'st-team1') + '">' + (s.team === 0 ? 'CYAN' : 'MAGENTA') + '</td>' : '') +
+      '<td class="st-kills">' + s.kills + '</td>' +
+      '<td class="st-deaths">' + s.deaths + '</td>' +
+      '<td class="st-damage">' + s.damageDealt + '</td>' +
+    '</tr>';
+  }
+  html += '</tbody>';
+  tableEl.innerHTML = html;
+
+  overlay.style.display = 'flex';
+
+  // Release pointer lock
+  if (document.pointerLockElement) {
+    try { document.exitPointerLock(); } catch(e) {}
+  }
+}
+
+// ========================================
+// Utility
+// ========================================
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ========================================
+// Socket.IO networking
+// ========================================
+const socket = io({
+  auth: { token, gameId }
+});
+
+socket.on('connect_error', (err) => {
+  if (err.message === 'Authentication required') {
+    window.location.href = '/';
+  }
+});
+
+socket.on('game:error', (data) => {
+  alert(data.message);
+  window.location.href = '/lobby.html';
+});
+
+// Countdown phase
+socket.on('game:countdown', () => {
+  const overlay = document.getElementById('countdown-overlay');
+  const textEl = document.getElementById('countdown-text');
+  const subEl = document.getElementById('countdown-sub');
+
+  subEl.textContent = 'Get ready!';
+  let count = 3;
+  textEl.textContent = count;
+
+  const interval = setInterval(() => {
+    count--;
+    if (count > 0) {
+      textEl.textContent = count;
+    } else {
+      clearInterval(interval);
+      textEl.textContent = 'FIGHT!';
+    }
+  }, 1000);
+});
+
+// Game starts
+socket.on('game:go', () => {
+  const overlay = document.getElementById('countdown-overlay');
+  overlay.style.display = 'none';
+
+  const container = document.getElementById('game-container');
+  container.classList.add('locked');
+  document.body.classList.add('locked');
+
+  gameActive = true;
+  try { game.canvas.requestPointerLock(); } catch(e) {}
+
+  // Start broadcasting position
+  setInterval(() => {
+    if (!gameActive || !player.alive || gameOver) return;
+    socket.emit('game:state', {
+      x: player.x,
+      y: player.y,
+      angle: player.angle,
+    });
+  }, 66); // ~15Hz
+
+  // Start HUD updates
+  setInterval(updatePlayerHUD, 200);
+});
+
+// Remote player state updates
+socket.on('game:playerState', (data) => {
+  const rp = remotePlayers.get(data.username);
+  if (!rp) return;
+  rp.targetX = data.x;
+  rp.targetY = data.y;
+  rp.targetAngle = data.angle;
+  rp.health = data.health;
+});
+
+// Player was hit
+socket.on('game:playerHit', (data) => {
+  if (data.target === mpUsername) {
+    player.health = data.newHealth;
+    player.damageFlash = 6;
+  } else {
+    const rp = remotePlayers.get(data.target);
+    if (rp) {
+      rp.health = data.newHealth;
+      rp.hitFlash = 8;
+    }
+  }
+});
+
+// Player killed
+socket.on('game:playerKill', (data) => {
+  addKillFeedEntry(data.killer, data.victim);
+
+  if (data.victim === mpUsername) {
+    player.alive = false;
+    player.health = 0;
+    document.getElementById('death-overlay').style.display = 'flex';
+    player.shooting = false;
+  } else {
+    const rp = remotePlayers.get(data.victim);
+    if (rp) {
+      rp.alive = false;
+      rp.health = 0;
+    }
+  }
+  updatePlayerHUD();
+});
+
+// Game over
+socket.on('game:over', (data) => {
+  gameOver = true;
+  gameActive = false;
+  player.shooting = false;
+  keys = {};
+  document.getElementById('death-overlay').style.display = 'none';
+  showScoreScreen(data.result, data.stats, data.mode);
+});
+</script>
+</body>
+</html>

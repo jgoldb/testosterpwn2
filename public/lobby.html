@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TESTOSTERPWN: Lobby</title>
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  body { overflow: hidden; }
+
+  .lobby-layout {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+    flex-direction: column;
+  }
+
+  /* Top bar */
+  .lobby-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: rgba(0, 10, 15, 0.95);
+    border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+    flex-shrink: 0;
+  }
+
+  .lobby-title {
+    font-size: 20px;
+    color: #0ff;
+    text-shadow: 0 0 15px #0ff;
+    letter-spacing: 6px;
+  }
+
+  .lobby-header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  /* Main content area */
+  .lobby-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Chat area */
+  .chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 5, 10, 0.9);
+    min-width: 0;
+  }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .chat-messages::-webkit-scrollbar { width: 6px; }
+  .chat-messages::-webkit-scrollbar-track { background: #080810; }
+  .chat-messages::-webkit-scrollbar-thumb { background: #0ff3; border-radius: 3px; }
+  .chat-messages::-webkit-scrollbar-thumb:hover { background: #0ff6; }
+
+  .chat-msg {
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .chat-msg .timestamp { color: #333; font-size: 10px; margin-right: 6px; }
+  .chat-msg .username { color: #0f0; font-weight: bold; margin-right: 4px; }
+  .chat-msg .username::before { content: '<'; color: #555; }
+  .chat-msg .username::after { content: '>'; color: #555; }
+  .chat-msg .text { color: #ccc; }
+  .chat-msg.system { color: #555; font-size: 11px; font-style: italic; }
+  .chat-msg.system .text { color: #555; }
+
+  /* Chat input */
+  .chat-input-bar {
+    display: flex;
+    padding: 10px 12px;
+    background: rgba(0, 15, 20, 0.95);
+    border-top: 1px solid rgba(0, 255, 255, 0.15);
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .chat-input-bar input {
+    flex: 1;
+    padding: 10px 14px;
+    background: rgba(0, 255, 255, 0.05);
+    border: 1px solid rgba(0, 255, 255, 0.2);
+    color: #0ff;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    letter-spacing: 1px;
+    outline: none;
+    transition: all 0.3s;
+  }
+  .chat-input-bar input:focus {
+    border-color: #0ff;
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.15);
+  }
+  .chat-input-bar input::placeholder { color: rgba(0, 255, 255, 0.2); }
+  .chat-send-btn {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #0ff;
+    background: rgba(0, 255, 255, 0.1);
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    padding: 10px 20px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    transition: all 0.3s;
+  }
+  .chat-send-btn:hover {
+    background: rgba(0, 255, 255, 0.2);
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+  }
+
+  /* ===== Games Panel (center column) ===== */
+  .games-panel {
+    width: 340px;
+    background: rgba(0, 8, 14, 0.95);
+    border-left: 1px solid rgba(0, 255, 255, 0.12);
+    border-right: 1px solid rgba(0, 255, 255, 0.12);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .games-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+  }
+  .games-panel-title {
+    font-size: 11px;
+    color: #0ff;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.3);
+  }
+
+  .create-game-btn {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #0f0;
+    background: rgba(0, 255, 0, 0.08);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    padding: 5px 12px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.3s;
+  }
+  .create-game-btn:hover {
+    background: rgba(0, 255, 0, 0.18);
+    box-shadow: 0 0 8px rgba(0, 255, 0, 0.2);
+  }
+
+  .games-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .games-content::-webkit-scrollbar { width: 4px; }
+  .games-content::-webkit-scrollbar-track { background: #080810; }
+  .games-content::-webkit-scrollbar-thumb { background: #0ff3; border-radius: 2px; }
+
+  /* Game cards in the list */
+  .game-card {
+    background: rgba(0, 20, 30, 0.6);
+    border: 1px solid rgba(0, 255, 255, 0.12);
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    transition: all 0.2s;
+  }
+  .game-card:hover { border-color: rgba(0, 255, 255, 0.3); }
+  .game-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .game-host { color: #0f0; font-size: 12px; letter-spacing: 1px; }
+  .game-mode {
+    font-size: 10px;
+    letter-spacing: 2px;
+    padding: 2px 8px;
+    border: 1px solid;
+    text-transform: uppercase;
+  }
+  .game-mode.m-1v1 { color: #0ff; border-color: #0ff4; }
+  .game-mode.m-2v2 { color: #f0a; border-color: #f0a4; }
+  .game-mode.m-ffa { color: #f80; border-color: #f804; }
+  .game-card-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .game-players { color: #888; font-size: 11px; }
+  .game-status { font-size: 10px; letter-spacing: 1px; }
+  .game-status.waiting { color: #0f0; }
+  .game-status.playing { color: #f80; }
+  .game-join-btn {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: #0f0;
+    background: rgba(0, 255, 0, 0.08);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    padding: 3px 10px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+  .game-join-btn:hover { background: rgba(0, 255, 0, 0.2); }
+  .game-join-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .no-games {
+    color: #333;
+    font-size: 12px;
+    text-align: center;
+    padding: 30px 10px;
+    letter-spacing: 2px;
+  }
+
+  /* Create game form */
+  .create-form {
+    padding: 14px;
+  }
+  .create-form-title {
+    color: #0f0;
+    font-size: 12px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    text-shadow: 0 0 8px rgba(0, 255, 0, 0.3);
+  }
+  .mode-options {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .mode-option {
+    flex: 1;
+    padding: 8px 4px;
+    text-align: center;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    background: rgba(0, 255, 255, 0.05);
+    border: 1px solid rgba(0, 255, 255, 0.15);
+    color: #888;
+    transition: all 0.2s;
+  }
+  .mode-option:hover { border-color: rgba(0, 255, 255, 0.3); color: #aaa; }
+  .mode-option.selected {
+    border-color: #0ff;
+    color: #0ff;
+    background: rgba(0, 255, 255, 0.12);
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.3);
+  }
+  .ff-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    color: #888;
+    font-size: 12px;
+  }
+  .ff-toggle.hidden { display: none; }
+  .ff-toggle input { accent-color: #0ff; }
+  .ff-toggle label { cursor: pointer; letter-spacing: 1px; }
+  .create-form-buttons {
+    display: flex;
+    gap: 8px;
+  }
+  .create-form-buttons button {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 8px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+  .cf-create {
+    color: #0f0;
+    background: rgba(0, 255, 0, 0.08);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+  }
+  .cf-create:hover { background: rgba(0, 255, 0, 0.2); }
+  .cf-cancel {
+    color: #888;
+    background: transparent;
+    border: 1px solid #333;
+  }
+  .cf-cancel:hover { border-color: #888; color: #ccc; }
+
+  /* Room detail view (when you're in a game) */
+  .room-view { padding: 14px; }
+  .room-title {
+    color: #0ff;
+    font-size: 13px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.3);
+    margin-bottom: 4px;
+  }
+  .room-mode-badge {
+    font-size: 10px;
+    letter-spacing: 2px;
+    padding: 2px 8px;
+    border: 1px solid;
+    text-transform: uppercase;
+    display: inline-block;
+    margin-bottom: 12px;
+  }
+  .room-section-label {
+    color: #555;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin: 10px 0 6px 0;
+    border-bottom: 1px solid #1a1a2a;
+    padding-bottom: 4px;
+  }
+  .room-player {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+  .room-player-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .room-player-dot.team0 { background: #0ff; box-shadow: 0 0 6px #0ff; }
+  .room-player-dot.team1 { background: #f0a; box-shadow: 0 0 6px #f0a; }
+  .room-player-dot.ffa { background: #0f0; box-shadow: 0 0 6px #0f0; }
+  .room-player-name { color: #ccc; }
+  .room-player-name.self { color: #0ff; }
+  .room-player-host { color: #ff0; font-size: 9px; letter-spacing: 1px; }
+  .room-ff-note { color: #555; font-size: 10px; letter-spacing: 1px; margin-top: 4px; }
+  .room-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .room-buttons button {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 8px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+  .rb-start {
+    color: #0f0;
+    background: rgba(0, 255, 0, 0.08);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+  }
+  .rb-start:hover { background: rgba(0, 255, 0, 0.2); }
+  .rb-start:disabled { opacity: 0.3; cursor: not-allowed; }
+  .rb-leave {
+    color: #f44;
+    background: rgba(255, 68, 68, 0.05);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+  }
+  .rb-leave:hover { background: rgba(255, 68, 68, 0.15); }
+
+  .room-error {
+    color: #f44;
+    font-size: 11px;
+    margin-top: 8px;
+    min-height: 16px;
+  }
+
+  /* Player sidebar */
+  .player-sidebar {
+    width: 200px;
+    background: rgba(0, 10, 18, 0.95);
+    border-left: 1px solid rgba(0, 255, 255, 0.15);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-title {
+    padding: 14px 16px;
+    font-size: 11px;
+    color: #0ff;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.3);
+  }
+  .player-count { color: #0f0; float: right; text-shadow: 0 0 8px rgba(0, 255, 0, 0.3); }
+  .player-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .player-list::-webkit-scrollbar { width: 4px; }
+  .player-list::-webkit-scrollbar-track { background: #080810; }
+  .player-list::-webkit-scrollbar-thumb { background: #0ff3; border-radius: 2px; }
+  .player-entry {
+    padding: 6px 16px; font-size: 13px; color: #0f0;
+    letter-spacing: 1px; display: flex; align-items: center; gap: 8px;
+  }
+  .player-entry::before {
+    content: ''; display: inline-block; width: 6px; height: 6px;
+    background: #0f0; border-radius: 50%; box-shadow: 0 0 6px #0f0; flex-shrink: 0;
+  }
+  .player-entry.self { color: #0ff; }
+  .player-entry.self::before { background: #0ff; box-shadow: 0 0 6px #0ff; }
+
+  .connection-status {
+    font-size: 10px; letter-spacing: 2px; padding: 8px 16px;
+    border-top: 1px solid rgba(0, 255, 255, 0.1);
+  }
+  .connection-status.connected { color: #0f0; }
+  .connection-status.disconnected { color: #f44; }
+  .connection-status.connecting { color: #ff0; }
+</style>
+</head>
+<body>
+
+<div class="lobby-layout">
+  <!-- Header -->
+  <div class="lobby-header">
+    <div class="lobby-title">OPERATIONS LOBBY</div>
+    <div class="lobby-header-right">
+      <span class="user-badge">OPERATOR: <span id="username-display">---</span></span>
+      <a href="/menu.html" class="btn btn-small btn-cyan">Back</a>
+    </div>
+  </div>
+
+  <!-- Body: Chat + Games + Sidebar -->
+  <div class="lobby-body">
+    <!-- Chat -->
+    <div class="chat-area">
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-msg system">
+          <span class="text">Establishing secure connection...</span>
+        </div>
+      </div>
+      <div class="chat-input-bar">
+        <input type="text" id="chat-input" placeholder="Transmit message..." maxlength="500" autocomplete="off">
+        <button class="chat-send-btn" id="chat-send">Send</button>
+      </div>
+    </div>
+
+    <!-- Games Panel -->
+    <div class="games-panel">
+      <div class="games-panel-header">
+        <span class="games-panel-title">Games</span>
+        <button class="create-game-btn" id="btn-create-game">+ New</button>
+      </div>
+      <div class="games-content" id="games-content">
+        <!-- Populated dynamically: games list, create form, or room view -->
+        <div class="no-games">No active games</div>
+      </div>
+    </div>
+
+    <!-- Player List -->
+    <div class="player-sidebar">
+      <div class="sidebar-title">
+        Online <span class="player-count" id="player-count">0</span>
+      </div>
+      <div class="player-list" id="player-list"></div>
+      <div class="connection-status connecting" id="connection-status">CONNECTING...</div>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+// ========================================
+// Auth
+// ========================================
+const token = sessionStorage.getItem('tp_token');
+const username = sessionStorage.getItem('tp_username');
+if (!token || !username) window.location.href = '/';
+document.getElementById('username-display').textContent = username;
+
+// ========================================
+// DOM refs
+// ========================================
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+const chatSend = document.getElementById('chat-send');
+const playerListEl = document.getElementById('player-list');
+const playerCount = document.getElementById('player-count');
+const connectionStatus = document.getElementById('connection-status');
+const gamesContent = document.getElementById('games-content');
+const btnCreateGame = document.getElementById('btn-create-game');
+
+// ========================================
+// State
+// ========================================
+let currentGames = [];   // games list from server
+let currentRoom = null;  // the game room we're in (null if none)
+let viewMode = 'list';   // 'list' | 'create' | 'room'
+
+// ========================================
+// Socket
+// ========================================
+const socket = io({ auth: { token } });
+
+socket.on('connect', () => {
+  connectionStatus.textContent = 'CONNECTED';
+  connectionStatus.className = 'connection-status connected';
+  addSystemMessage('Secure channel established');
+});
+
+socket.on('disconnect', () => {
+  connectionStatus.textContent = 'DISCONNECTED';
+  connectionStatus.className = 'connection-status disconnected';
+  addSystemMessage('Connection lost');
+});
+
+socket.on('connect_error', (err) => {
+  if (err.message === 'Authentication required') {
+    sessionStorage.removeItem('tp_token');
+    sessionStorage.removeItem('tp_username');
+    window.location.href = '/';
+    return;
+  }
+  connectionStatus.textContent = 'ERROR';
+  connectionStatus.className = 'connection-status disconnected';
+});
+
+socket.on('lobby:kicked', (data) => {
+  addSystemMessage('Disconnected: ' + data.reason);
+  connectionStatus.textContent = 'KICKED';
+  connectionStatus.className = 'connection-status disconnected';
+  chatInput.disabled = true;
+  chatSend.disabled = true;
+});
+
+// ========================================
+// Player list
+// ========================================
+socket.on('lobby:players', (players) => {
+  playerCount.textContent = players.length;
+  playerListEl.innerHTML = '';
+  players.sort((a, b) => {
+    if (a === username) return -1;
+    if (b === username) return 1;
+    return a.localeCompare(b);
+  });
+  for (const name of players) {
+    const el = document.createElement('div');
+    el.className = 'player-entry' + (name === username ? ' self' : '');
+    el.textContent = name;
+    playerListEl.appendChild(el);
+  }
+});
+
+// ========================================
+// Chat
+// ========================================
+socket.on('lobby:system', (data) => addSystemMessage(data.message));
+socket.on('chat:message', (data) => addChatMessage(data.username, data.message, data.timestamp));
+
+function sendMessage() {
+  const msg = chatInput.value.trim();
+  if (!msg) return;
+  socket.emit('chat:message', msg);
+  chatInput.value = '';
+  chatInput.focus();
+}
+chatSend.addEventListener('click', sendMessage);
+chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+// ========================================
+// Games list
+// ========================================
+socket.on('lobby:games', (list) => {
+  currentGames = list;
+  if (viewMode === 'list') renderGamesList();
+});
+
+socket.on('game:joined', (game) => {
+  currentRoom = game;
+  viewMode = 'room';
+  renderRoomView();
+  btnCreateGame.style.display = 'none';
+});
+
+socket.on('game:updated', (game) => {
+  if (currentRoom && currentRoom.id === game.id) {
+    currentRoom = game;
+    renderRoomView();
+  }
+});
+
+socket.on('game:left', () => {
+  currentRoom = null;
+  viewMode = 'list';
+  renderGamesList();
+  btnCreateGame.style.display = '';
+});
+
+socket.on('game:error', (data) => {
+  if (viewMode === 'room') {
+    const errEl = document.getElementById('room-error');
+    if (errEl) errEl.textContent = data.message;
+  } else {
+    addSystemMessage('Error: ' + data.message);
+  }
+});
+
+socket.on('game:starting', (data) => {
+  // Store game info for mp-game.html
+  sessionStorage.setItem('tp_gameId', data.gameId);
+  sessionStorage.setItem('tp_spawnData', JSON.stringify(data.spawnData));
+  sessionStorage.setItem('tp_gameMode', data.mode);
+  sessionStorage.setItem('tp_friendlyFire', data.friendlyFire ? '1' : '0');
+  window.location.href = '/mp-game.html';
+});
+
+// ========================================
+// Create game button
+// ========================================
+btnCreateGame.addEventListener('click', () => {
+  if (currentRoom) return;
+  viewMode = 'create';
+  renderCreateForm();
+});
+
+// ========================================
+// Render functions
+// ========================================
+
+function renderGamesList() {
+  // Show games we're NOT in (or all if we're not in any)
+  const waitingGames = currentGames.filter(g => g.status === 'waiting');
+  const playingGames = currentGames.filter(g => g.status !== 'waiting');
+
+  if (currentGames.length === 0) {
+    gamesContent.innerHTML = '<div class="no-games">No active games</div>';
+    return;
+  }
+
+  let html = '';
+  for (const g of waitingGames) {
+    const modeClass = g.mode === '1v1' ? 'm-1v1' : g.mode === '2v2' ? 'm-2v2' : 'm-ffa';
+    const full = g.players.length >= g.maxPlayers;
+    const inGame = g.players.some(p => p.username === username);
+    html += '<div class="game-card">' +
+      '<div class="game-card-top">' +
+        '<span class="game-host">' + escapeHtml(g.host) + '\'s game</span>' +
+        '<span class="game-mode ' + modeClass + '">' + escapeHtml(g.mode) + '</span>' +
+      '</div>' +
+      '<div class="game-card-bottom">' +
+        '<span class="game-players">' + g.players.length + '/' + g.maxPlayers + ' players</span>' +
+        (inGame
+          ? '<span style="color:#0ff;font-size:10px;letter-spacing:1px">JOINED</span>'
+          : '<button class="game-join-btn" onclick="joinGame(\'' + g.id + '\')"' + (full ? ' disabled' : '') + '>' + (full ? 'FULL' : 'JOIN') + '</button>'
+        ) +
+      '</div>' +
+    '</div>';
+  }
+  for (const g of playingGames) {
+    const modeClass = g.mode === '1v1' ? 'm-1v1' : g.mode === '2v2' ? 'm-2v2' : 'm-ffa';
+    html += '<div class="game-card" style="opacity:0.5">' +
+      '<div class="game-card-top">' +
+        '<span class="game-host">' + escapeHtml(g.host) + '\'s game</span>' +
+        '<span class="game-mode ' + modeClass + '">' + escapeHtml(g.mode) + '</span>' +
+      '</div>' +
+      '<div class="game-card-bottom">' +
+        '<span class="game-players">' + g.players.length + '/' + g.maxPlayers + '</span>' +
+        '<span class="game-status playing">IN PROGRESS</span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  gamesContent.innerHTML = html;
+}
+
+function renderCreateForm() {
+  gamesContent.innerHTML =
+    '<div class="create-form">' +
+      '<div class="create-form-title">Create Game</div>' +
+      '<div class="mode-options">' +
+        '<div class="mode-option selected" data-mode="1v1" onclick="selectMode(this)">1v1</div>' +
+        '<div class="mode-option" data-mode="2v2" onclick="selectMode(this)">2v2</div>' +
+        '<div class="mode-option" data-mode="ffa" onclick="selectMode(this)">FFA</div>' +
+      '</div>' +
+      '<div class="ff-toggle hidden" id="ff-toggle">' +
+        '<input type="checkbox" id="ff-check">' +
+        '<label for="ff-check">Friendly Fire</label>' +
+      '</div>' +
+      '<div class="create-form-buttons">' +
+        '<button class="cf-create" onclick="submitCreate()">Create</button>' +
+        '<button class="cf-cancel" onclick="cancelCreate()">Cancel</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function renderRoomView() {
+  if (!currentRoom) return;
+  const g = currentRoom;
+  const isHost = g.host === username;
+  const modeClass = g.mode === '1v1' ? 'm-1v1' : g.mode === '2v2' ? 'm-2v2' : 'm-ffa';
+
+  let playersHtml = '';
+  if (g.mode === '2v2') {
+    const t0 = g.players.filter(p => p.team === 0);
+    const t1 = g.players.filter(p => p.team === 1);
+    playersHtml += '<div class="room-section-label">Team Cyan</div>';
+    for (const p of t0) {
+      playersHtml += '<div class="room-player">' +
+        '<span class="room-player-dot team0"></span>' +
+        '<span class="room-player-name' + (p.username === username ? ' self' : '') + '">' + escapeHtml(p.username) + '</span>' +
+        (p.username === g.host ? ' <span class="room-player-host">[HOST]</span>' : '') +
+      '</div>';
+    }
+    playersHtml += '<div class="room-section-label">Team Magenta</div>';
+    for (const p of t1) {
+      playersHtml += '<div class="room-player">' +
+        '<span class="room-player-dot team1"></span>' +
+        '<span class="room-player-name' + (p.username === username ? ' self' : '') + '">' + escapeHtml(p.username) + '</span>' +
+        (p.username === g.host ? ' <span class="room-player-host">[HOST]</span>' : '') +
+      '</div>';
+    }
+    if (g.friendlyFire) {
+      playersHtml += '<div class="room-ff-note">Friendly fire: ON</div>';
+    }
+  } else {
+    playersHtml += '<div class="room-section-label">Players</div>';
+    for (const p of g.players) {
+      playersHtml += '<div class="room-player">' +
+        '<span class="room-player-dot ffa"></span>' +
+        '<span class="room-player-name' + (p.username === username ? ' self' : '') + '">' + escapeHtml(p.username) + '</span>' +
+        (p.username === g.host ? ' <span class="room-player-host">[HOST]</span>' : '') +
+      '</div>';
+    }
+  }
+
+  // Can start?
+  let canStart = false;
+  if (isHost) {
+    if (g.mode === '1v1') canStart = g.players.length === 2;
+    else if (g.mode === '2v2') canStart = g.players.length === 4;
+    else canStart = g.players.length >= 2;
+  }
+
+  gamesContent.innerHTML =
+    '<div class="room-view">' +
+      '<div class="room-title">' + escapeHtml(g.host) + '\'s Game</div>' +
+      '<span class="room-mode-badge game-mode ' + modeClass + '">' + escapeHtml(g.mode) + '</span>' +
+      ' <span style="color:#888;font-size:10px">' + g.players.length + '/' + g.maxPlayers + '</span>' +
+      playersHtml +
+      '<div class="room-buttons">' +
+        (isHost
+          ? '<button class="rb-start" onclick="startGame()" ' + (canStart ? '' : 'disabled') + '>Start</button>'
+          : ''
+        ) +
+        '<button class="rb-leave" onclick="leaveGame()">Leave</button>' +
+      '</div>' +
+      '<div class="room-error" id="room-error"></div>' +
+    '</div>';
+}
+
+// ========================================
+// Actions
+// ========================================
+
+function selectMode(el) {
+  document.querySelectorAll('.mode-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  const ff = document.getElementById('ff-toggle');
+  if (el.dataset.mode === '2v2') ff.classList.remove('hidden');
+  else ff.classList.add('hidden');
+}
+
+function submitCreate() {
+  const mode = document.querySelector('.mode-option.selected')?.dataset.mode || '1v1';
+  const friendlyFire = document.getElementById('ff-check')?.checked || false;
+  socket.emit('game:create', { mode, friendlyFire });
+}
+
+function cancelCreate() {
+  viewMode = 'list';
+  renderGamesList();
+}
+
+function joinGame(gameId) {
+  socket.emit('game:join', { gameId });
+}
+
+function leaveGame() {
+  if (!currentRoom) return;
+  socket.emit('game:leave', { gameId: currentRoom.id });
+}
+
+function startGame() {
+  if (!currentRoom) return;
+  socket.emit('game:start', { gameId: currentRoom.id });
+}
+
+// ========================================
+// Chat helpers
+// ========================================
+
+function formatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function addChatMessage(user, message, timestamp) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg';
+  el.innerHTML =
+    '<span class="timestamp">' + escapeHtml(formatTime(timestamp)) + '</span>' +
+    '<span class="username">' + escapeHtml(user) + '</span> ' +
+    '<span class="text">' + escapeHtml(message) + '</span>';
+  chatMessages.appendChild(el);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function addSystemMessage(message) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg system';
+  el.innerHTML = '<span class="text">// ' + escapeHtml(message) + '</span>';
+  chatMessages.appendChild(el);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+</script>
+</body>
+</html>
