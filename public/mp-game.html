@@ -92,6 +92,7 @@
   .kill-feed-entry .kf-killer { color: #0f0; }
   .kill-feed-entry .kf-victim { color: #f44; }
   .kill-feed-entry .kf-arrow { color: #ff0; }
+  .kill-feed-entry .kf-hs { color: #f80; font-weight: bold; }
 
   /* Score screen overlay */
   #score-overlay {
@@ -146,6 +147,7 @@
   .score-table .st-kills { color: #0f0; }
   .score-table .st-deaths { color: #f44; }
   .score-table .st-damage { color: #ff0; }
+  .score-table .st-headshots { color: #f80; }
   .score-lobby-btn {
     font-family: 'Courier New', monospace;
     font-size: 16px;
@@ -345,12 +347,23 @@
     <div class="score-title" id="score-title">VICTORY</div>
     <div class="score-mode" id="score-mode"></div>
     <table class="score-table" id="score-table"></table>
-    <button class="score-lobby-btn" onclick="window.location.href='/lobby.html'">Return to Lobby</button>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+      <button class="score-lobby-btn" id="rematch-btn" onclick="requestRematch()">Rematch</button>
+      <button class="score-lobby-btn" onclick="window.location.href='/lobby.html'">Return to Lobby</button>
+    </div>
   </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="/js/engine.js"></script>
 <script>
+// ========================================
+// TESTOSTERPWN: MULTIPLAYER
+// MP-specific: networking, remote players, interpolation, scoring
+// ========================================
+
+const E = window.Engine;
+
 // ========================================
 // Auth & game data check
 // ========================================
@@ -365,56 +378,14 @@ if (!token || !mpUsername || !gameId || !spawnData) {
   window.location.href = '/lobby.html';
 }
 
-// Clean up session storage
 sessionStorage.removeItem('tp_gameId');
 sessionStorage.removeItem('tp_spawnData');
 sessionStorage.removeItem('tp_gameMode');
 sessionStorage.removeItem('tp_friendlyFire');
 
-// =============================================
-// TESTOSTERPWN: MULTIPLAYER
-// =============================================
-
-const SCREEN_W = 960;
-const SCREEN_H = 600;
-const RENDER_W = 480;
-const RENDER_H = 300;
-const TEX_SIZE = 64;
-const FOV = Math.PI / 3;
-const HALF_FOV = FOV / 2;
-const NUM_RAYS = RENDER_W;
-const MAX_DEPTH = 30;
-
-const MAP = [
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,2,2,2,0,0,0,3,3,3,3,3,0,0,0,4,4,4,0,0,0,1],
-  [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,0,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
-  [1,0,0,2,2,0,0,0,0,4,4,0,0,4,4,0,0,0,0,2,2,0,0,1],
-  [1,0,0,0,2,0,0,0,0,4,0,0,0,0,4,0,0,0,2,0,0,0,0,1],
-  [1,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-];
-const MAP_H = MAP.length;
-const MAP_W = MAP[0].length;
-
-// Player colors by team/slot
+// ========================================
+// Player colors
+// ========================================
 const PLAYER_COLORS = {
   team0: { body: '#0ff', eye: '#f00', glow: '0,255,255', name: 'Cyan' },
   team1: { body: '#f0a', eye: '#ff0', glow: '255,0,170', name: 'Magenta' },
@@ -426,31 +397,32 @@ const PLAYER_COLORS = {
   ],
 };
 
-// My spawn
 const mySpawn = spawnData[mpUsername];
 if (!mySpawn) window.location.href = '/lobby.html';
-
-// Determine my team
 const myTeam = mySpawn.team;
 
+// ========================================
 // Player state
+// ========================================
 const player = {
   x: mySpawn.x, y: mySpawn.y, angle: mySpawn.angle, pitch: 0,
-  speed: 0.04, sprintSpeed: 0.07, crouchSpeed: 0.02, rotSpeed: 0.004,
+  speed: 0.04, sprintSpeed: 0.07, crouchSpeed: 0.02, rotSpeed: E.BASE_ROT_SPEED,
   health: 100, armor: 0, ammo: 250,
   bobPhase: 0, bobAmount: 0,
-  shooting: false, shootTimer: 0, shootCooldown: 45,
+  shooting: false, shootTimer: 0, shootCooldown: 21,
   muzzleFlash: 0, weaponKick: 0, damageFlash: 0,
+  spread: 0, headshotIndicator: 0,
   alive: true,
   jumpZ: 0, jumpVel: 0, onGround: true,
   crouching: false, crouchOffset: 0,
 };
 
-// Remote players: username -> { x, y, angle, targetX, targetY, targetAngle, health, alive, team, color, hitFlash }
+// ========================================
+// Remote players with interpolation state
+// ========================================
 const remotePlayers = new Map();
-
-// Init remote players from spawnData
 const playerOrder = Object.keys(spawnData);
+
 for (const [name, sd] of Object.entries(spawnData)) {
   if (name === mpUsername) continue;
 
@@ -463,11 +435,23 @@ for (const [name, sd] of Object.entries(spawnData)) {
   }
 
   remotePlayers.set(name, {
+    // Current rendered position
     x: sd.x, y: sd.y, angle: sd.angle,
+    // Server target position
     targetX: sd.x, targetY: sd.y, targetAngle: sd.angle,
+    // Previous position (for velocity estimation)
+    prevX: sd.x, prevY: sd.y, prevAngle: sd.angle,
+    // Estimated velocity (units per server tick, ~50ms)
+    velX: 0, velY: 0,
+    // Interpolation timing
+    lastUpdateTime: 0,
+    updateInterval: 50, // will be measured from actual updates
+    interpProgress: 1, // 0-1, how far through current interpolation
+
     health: 100, alive: true,
     team: sd.team, color,
     hitFlash: 0,
+    muzzleFlash: 0,
     crouching: false,
     jumpZ: 0, targetJumpZ: 0,
     moving: false,
@@ -476,207 +460,21 @@ for (const [name, sd] of Object.entries(spawnData)) {
 }
 
 // ========================================
-// Procedural generation
+// Sprite generation
 // ========================================
-
-function generateTextures() {
-  const textures = {};
-  const types = {
-    1: { base: [20, 30, 40], accent: [0, 255, 255] },
-    2: { base: [40, 15, 15], accent: [255, 50, 50] },
-    3: { base: [15, 35, 20], accent: [0, 255, 100] },
-    4: { base: [35, 25, 10], accent: [255, 160, 0] },
-    5: { base: [30, 20, 40], accent: [180, 50, 255] },
-    6: { base: [15, 25, 35], accent: [50, 150, 255] },
-  };
-  for (const [id, t] of Object.entries(types)) {
-    const c = document.createElement('canvas');
-    c.width = TEX_SIZE; c.height = TEX_SIZE;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = `rgb(${t.base[0]},${t.base[1]},${t.base[2]})`;
-    ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
-    ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.15)`;
-    ctx.lineWidth = 1;
-    for (let i = 0; i < TEX_SIZE; i += 16) {
-      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, TEX_SIZE); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(TEX_SIZE, i); ctx.stroke();
-    }
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.6)`;
-    ctx.fillRect(0, 30, TEX_SIZE, 2);
-    ctx.fillRect(0, 50, TEX_SIZE, 1);
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.3)`;
-    ctx.fillRect(0, 29, TEX_SIZE, 1);
-    ctx.fillRect(0, 32, TEX_SIZE, 1);
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.4)`;
-    ctx.fillRect(4, 4, 8, 8); ctx.fillRect(52, 4, 8, 8);
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.8)`;
-    ctx.fillRect(6, 6, 4, 4); ctx.fillRect(54, 6, 4, 4);
-    const imgData = ctx.getImageData(0, 0, TEX_SIZE, TEX_SIZE);
-    for (let p = 0; p < imgData.data.length; p += 4) {
-      const n = (Math.random() - 0.5) * 12;
-      imgData.data[p] = Math.max(0, Math.min(255, imgData.data[p] + n));
-      imgData.data[p+1] = Math.max(0, Math.min(255, imgData.data[p+1] + n));
-      imgData.data[p+2] = Math.max(0, Math.min(255, imgData.data[p+2] + n));
-    }
-    ctx.putImageData(imgData, 0, 0);
-    textures[id] = ctx.getImageData(0, 0, TEX_SIZE, TEX_SIZE);
-  }
-  return textures;
-}
-
-function getSpriteDir(entityAngle, vx, vy, ex, ey) {
-  let r = Math.atan2(vy - ey, vx - ex) - entityAngle;
-  r = ((r % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  return Math.floor((r + Math.PI / 8) / (Math.PI / 4)) % 8;
-}
-
-// Generate 8-directional sprites for a character
-// Dirs: 0=front, 1=front-left, 2=left, 3=back-left, 4=back, 5=back-right, 6=right, 7=front-right
-function generateDirectionalSprites(bodyColor, eyeColor, glowColor, baseW) {
-  const sprites = [];
-  for (let d = 0; d < 8; d++) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    const cx = 32, cy = 32;
-
-    // Dirs 5-7 mirror dirs 3-1 for the body, weapon drawn separately
-    const bd = d <= 4 ? d : 8 - d;
-    const flip = d > 4;
-    const ws = bd === 2 ? 0.55 : (bd === 1 || bd === 3) ? 0.8 : 1.0;
-    const w = Math.floor(baseW * ws);
-    const front = bd <= 1, back = bd >= 3, side = bd === 2;
-
-    if (flip) { ctx.translate(64, 0); ctx.scale(-1, 1); }
-
-    // Body glow
-    const grd = ctx.createRadialGradient(cx, cy + 4, 2, cx, cy + 4, w * 0.8);
-    grd.addColorStop(0, `rgba(${glowColor},0.3)`);
-    grd.addColorStop(1, `rgba(${glowColor},0)`);
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, 64, 64);
-
-    // Legs
-    ctx.fillStyle = '#333';
-    if (side) {
-      ctx.fillRect(cx - 2, cy + 16, 5, 12);
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(cx - 1, cy + 26, 3, 2);
-    } else {
-      ctx.fillRect(cx - 5, cy + 16, 5, 12);
-      ctx.fillRect(cx + 1, cy + 16, 5, 12);
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(cx - 4, cy + 26, 3, 2);
-      ctx.fillRect(cx + 2, cy + 26, 3, 2);
-    }
-
-    // Torso
-    const tw = w - (side ? 8 : 16);
-    ctx.fillStyle = '#222';
-    ctx.fillRect(cx - tw / 2, cy - 8, tw, 26);
-    ctx.strokeStyle = bodyColor;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cx - tw / 2, cy - 8, tw, 26);
-
-    // Front: energy core / Back: exhaust panel
-    if (front) {
-      ctx.fillStyle = bodyColor;
-      ctx.beginPath(); ctx.arc(cx, cy + 4, 4, 0, Math.PI * 2); ctx.fill();
-    }
-    if (back) {
-      ctx.fillStyle = bodyColor;
-      ctx.globalAlpha = 0.4;
-      ctx.fillRect(cx - 5, cy - 2, 10, 14);
-      ctx.globalAlpha = 1;
-      ctx.fillRect(cx - 3, cy + 1, 6, 2);
-      ctx.fillRect(cx - 3, cy + 6, 6, 2);
-    }
-
-    // Head
-    const hw = Math.floor(20 * ws);
-    ctx.fillStyle = '#181818';
-    ctx.fillRect(cx - hw / 2, cy - 20, hw, 14);
-
-    // Eyes (front/side only)
-    if (bd === 0) {
-      ctx.fillStyle = eyeColor;
-      ctx.fillRect(cx - 7, cy - 16, 5, 4);
-      ctx.fillRect(cx + 2, cy - 16, 5, 4);
-    } else if (bd === 1) {
-      ctx.fillStyle = eyeColor;
-      ctx.fillRect(cx - hw / 2 + 1, cy - 16, 4, 4);
-      ctx.fillRect(cx - hw / 2 + 7, cy - 16, 5, 4);
-    } else if (side) {
-      ctx.fillStyle = eyeColor;
-      ctx.fillRect(cx - hw / 2 + 1, cy - 16, 5, 4);
-    }
-    // Back-of-head accent
-    if (back) {
-      ctx.fillStyle = bodyColor;
-      ctx.globalAlpha = 0.3;
-      ctx.fillRect(cx - hw / 2 + 2, cy - 18, hw - 4, 2);
-      ctx.globalAlpha = 1;
-    }
-
-    // Shoulders
-    if (side) {
-      ctx.fillStyle = '#333';
-      ctx.fillRect(cx - w / 2, cy - 6, 5, 12);
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(cx - w / 2 + 1, cy - 4, 3, 2);
-    } else {
-      const sw = Math.max(4, Math.floor(7 * ws));
-      ctx.fillStyle = '#333';
-      ctx.fillRect(cx - w / 2 + 2, cy - 6, sw, 12);
-      ctx.fillRect(cx + w / 2 - sw - 2, cy - 6, sw, 12);
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(cx - w / 2 + 3, cy - 4, Math.min(5, sw), 2);
-      ctx.fillRect(cx + w / 2 - sw - 1, cy - 4, Math.min(5, sw), 2);
-    }
-
-    // Reset transform for weapon (drawn in screen-space)
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    // Weapon arm: visible for front (dir 0) and right-side views (dirs 5,6,7)
-    if (d === 0 || d >= 5) {
-      const wx = cx + Math.floor(w / 2) - 6;
-      ctx.fillStyle = '#444';
-      ctx.fillRect(wx, cy, 14, 4);
-      ctx.fillStyle = eyeColor;
-      ctx.fillRect(wx + 12, cy, 3, 4);
-    }
-
-    sprites.push({ canvas, data: ctx.getImageData(0, 0, 64, 64) });
-  }
-  return sprites;
-}
+let playerSprites = {};
 
 function generatePlayerSprite(colorCfg) {
-  return generateDirectionalSprites(colorCfg.body, colorCfg.eye, colorCfg.glow, 36);
+  return E.generateDirectionalSprites(colorCfg.body, colorCfg.eye, colorCfg.glow, 36);
 }
-
-// ========================================
-// Game engine state
-// ========================================
-let wallTextures;
-let playerSprites = {}; // keyed by username
-let gameActive = false;
-let gameOver = false;
-let optionsOpen = false;
-let keys = {};
-let renderTex, renderCtx, depthBuffer, frameImgData;
-
-// Master volume and sensitivity multipliers
-let masterVolume = 1.0;
-const BASE_ROT_SPEED = 0.004;
 
 // ========================================
 // Audio system
 // ========================================
-const AUDIO_MAX_DIST = 15; // distance at which remote sounds become inaudible
+const AUDIO_MAX_DIST = 15;
 const FOOTSTEP_LOCAL_VOLUME = 0.4;
+let masterVolume = 1.0;
 
-// Local player audio
 const localFootstepAudio = new Audio('/audio/footsteps.mp3');
 localFootstepAudio.loop = true;
 localFootstepAudio.volume = FOOTSTEP_LOCAL_VOLUME;
@@ -687,8 +485,7 @@ jumpAudio.volume = 0.5;
 const shootAudio = new Audio('/audio/shoot.mp3');
 shootAudio.volume = 0.5;
 
-// Per-remote-player audio objects
-const remoteAudio = new Map(); // username -> { footstep, jump, shoot }
+const remoteAudio = new Map();
 
 function initRemoteAudio(username) {
   const footstep = new Audio('/audio/footsteps.mp3');
@@ -702,8 +499,7 @@ function initRemoteAudio(username) {
 }
 
 function getRemoteVolume(rp) {
-  const dx = rp.x - player.x;
-  const dy = rp.y - player.y;
+  const dx = rp.x - player.x, dy = rp.y - player.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
   return Math.max(0, 1 - dist / AUDIO_MAX_DIST) * masterVolume;
 }
@@ -715,9 +511,7 @@ function updateLocalFootsteps() {
   }
   if (player.moving) {
     localFootstepAudio.volume = FOOTSTEP_LOCAL_VOLUME * masterVolume;
-    if (localFootstepAudio.paused) {
-      localFootstepAudio.play().catch(() => {});
-    }
+    if (localFootstepAudio.paused) localFootstepAudio.play().catch(() => {});
   } else {
     localFootstepAudio.pause();
   }
@@ -728,18 +522,14 @@ function updateRemoteAudio() {
     const audio = remoteAudio.get(username);
     if (!audio) continue;
 
-    // Footsteps: play when moving (already accounts for crouch + airborne)
     const shouldPlayFootsteps = rp.alive && rp.moving && gameActive && !gameOver;
     if (shouldPlayFootsteps) {
       audio.footstep.volume = getRemoteVolume(rp) * 0.6;
-      if (audio.footstep.paused) {
-        audio.footstep.play().catch(() => {});
-      }
+      if (audio.footstep.paused) audio.footstep.play().catch(() => {});
     } else {
       audio.footstep.pause();
     }
 
-    // Jump: detect transition from onGround to airborne
     if (rp.alive && !rp.onGround && rp.wasOnGround && gameActive && !gameOver) {
       const vol = getRemoteVolume(rp) * 0.5;
       if (vol > 0) {
@@ -762,40 +552,27 @@ function stopAllAudio() {
 }
 
 // ========================================
+// Game state
+// ========================================
+let gameActive = false;
+let gameOver = false;
+let optionsOpen = false;
+let keys = {};
+let showMap = false;
+
+// ========================================
 // Phaser setup
 // ========================================
-const config = {
-  type: Phaser.CANVAS,
-  width: SCREEN_W, height: SCREEN_H,
-  parent: 'game-container',
-  backgroundColor: '#000000',
-  scene: { preload: function(){}, create: gameCreate, update: gameUpdate },
-  audio: { noAudio: true },
-  banner: false,
-  fps: { target: 60, forceSetTimeOut: false },
-  render: { pixelArt: true, antialias: false },
-};
-const game = new Phaser.Game(config);
+const game = E.initPhaser('game-container', gameCreate, gameUpdate);
 
 function gameCreate() {
-  wallTextures = generateTextures();
+  E.initRenderCanvas(this);
 
-  // Generate sprites for each remote player
   for (const [name, rp] of remotePlayers) {
     playerSprites[name] = generatePlayerSprite(rp.color);
     initRemoteAudio(name);
   }
 
-  const renderCanvas = document.createElement('canvas');
-  renderCanvas.width = RENDER_W; renderCanvas.height = RENDER_H;
-  renderCtx = renderCanvas.getContext('2d', { willReadFrequently: true });
-  depthBuffer = new Float32Array(RENDER_W);
-
-  this.textures.addCanvas('render', renderCanvas);
-  renderTex = this.add.image(SCREEN_W / 2, SCREEN_H / 2, 'render');
-  renderTex.setDisplaySize(SCREEN_W, SCREEN_H);
-
-  try { this.input.mouse.enabled = false; } catch(e) {}
   try { game.input.mouse.enabled = false; } catch(e) {}
 
   const gameCanvas = game.canvas;
@@ -826,219 +603,231 @@ function gameCreate() {
     try { gameCanvas.requestPointerLock(); } catch(e) {}
   }
 
-  // Volume slider
   volSlider.addEventListener('input', () => {
     masterVolume = volSlider.value / 100;
     volValue.textContent = volSlider.value + '%';
   });
 
-  // Sensitivity slider
   sensSlider.addEventListener('input', () => {
-    player.rotSpeed = BASE_ROT_SPEED * (sensSlider.value / 100);
+    player.rotSpeed = E.BASE_ROT_SPEED * (sensSlider.value / 100);
     sensValue.textContent = sensSlider.value + '%';
   });
 
-  // Resume button
   document.getElementById('options-resume-btn').addEventListener('click', closeOptions);
-
-  document.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
-    if (!gameActive || gameOver) return;
-    if (e.code === 'Escape') {
-      e.preventDefault();
-      // If pointer lock is active, the browser exits it on ESC and consumes the
-      // keydown — pointerlockchange will open the options panel instead.
-      // If no pointer lock (options already open, or lock not re-acquired), toggle.
-      if (!document.pointerLockElement) {
-        if (optionsOpen) { closeOptions(); } else { openOptions(); }
-      }
-      return;
-    }
-    if (optionsOpen) return;
-    if (e.code === 'Tab') { showMap = !showMap; return; }
-    keys[e.code] = true;
-  }, true);
-  document.addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-  }, true);
-
-  const MAX_PITCH = RENDER_H * 0.75;
-  document.addEventListener('mousemove', (e) => {
-    if (!gameActive || !player.alive || gameOver || optionsOpen) return;
-    if (document.pointerLockElement === gameCanvas) {
-      player.angle += e.movementX * player.rotSpeed;
-      player.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH,
-        player.pitch - e.movementY * player.rotSpeed * 450));
-    }
-  }, true);
-
-  document.addEventListener('mousedown', (e) => {
-    if (!gameActive || !player.alive || gameOver || optionsOpen) return;
-    if (!document.pointerLockElement) {
-      try { gameCanvas.requestPointerLock(); } catch(e) {}
-      return;
-    }
-    player.shooting = true;
-  }, true);
-  document.addEventListener('mouseup', () => { player.shooting = false; }, true);
 
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === gameCanvas) {
-      // Re-acquired pointer lock (after closing options)
       optionsOpen = false;
       optionsOverlay.style.display = 'none';
       container.classList.add('locked');
       document.body.classList.add('locked');
     } else if (gameActive && !gameOver && !optionsOpen) {
-      // Lost pointer lock (browser ESC) — open options
       openOptions();
     }
   });
 
-  // Signal ready to server
+  // Input setup via shared engine
+  E.setupInput({
+    gameCanvas, container, player,
+    getKeys: () => keys,
+    shouldIgnoreInput: () => !gameActive || gameOver,
+    isPaused: () => optionsOpen,
+    shouldIgnoreMouseMove: () => !gameActive || !player.alive || gameOver || optionsOpen,
+    onEscape: () => {
+      if (!document.pointerLockElement) {
+        if (optionsOpen) { closeOptions(); } else { openOptions(); }
+      }
+    },
+    onTab: () => { showMap = !showMap; },
+    onMouseDown: (e) => {
+      if (!gameActive || !player.alive || gameOver || optionsOpen) return;
+      if (!document.pointerLockElement) {
+        try { gameCanvas.requestPointerLock(); } catch(e) {}
+        return;
+      }
+      player.shooting = true;
+    },
+  });
+
   socket.emit('game:ready');
 }
 
-let showMap = false;
+// ========================================
+// Smooth Remote Player Interpolation
+// ========================================
+// Interpolation smoothing factor — lower = smoother but more latent
+const INTERP_SMOOTHING = 0.18;
 
+function interpolateRemotePlayers(dt) {
+  const now = performance.now();
+
+  for (const rp of remotePlayers.values()) {
+    if (!rp.alive) continue;
+
+    // Time since last server update
+    const timeSinceUpdate = now - rp.lastUpdateTime;
+    // Progress through expected update interval (0 to ~1+)
+    const interpT = rp.updateInterval > 0 ? Math.min(timeSinceUpdate / rp.updateInterval, 2.0) : 1.0;
+
+    if (interpT <= 1.0 && rp.lastUpdateTime > 0) {
+      // Within expected interval: use Hermite interpolation for smooth curves
+      // Scale velocities by update interval for proper Hermite tangent length
+      const scaledVelX = rp.velX * rp.updateInterval / 1000;
+      const scaledVelY = rp.velY * rp.updateInterval / 1000;
+      const targetVelX = scaledVelX; // Assume velocity continues
+      const targetVelY = scaledVelY;
+
+      const hermiteX = E.hermite(interpT, rp.prevX, rp.targetX, scaledVelX, targetVelX);
+      const hermiteY = E.hermite(interpT, rp.prevY, rp.targetY, scaledVelY, targetVelY);
+
+      // Blend between hermite and exponential smoothing for stability
+      const blendWeight = 0.6; // 60% hermite, 40% exponential
+      const expX = E.smoothLerp(rp.x, rp.targetX, INTERP_SMOOTHING, dt);
+      const expY = E.smoothLerp(rp.y, rp.targetY, INTERP_SMOOTHING, dt);
+
+      rp.x = hermiteX * blendWeight + expX * (1 - blendWeight);
+      rp.y = hermiteY * blendWeight + expY * (1 - blendWeight);
+    } else {
+      // Beyond expected interval or no timing data: extrapolate briefly, then smooth to target
+      if (interpT <= 1.5 && rp.velX !== 0 && rp.velY !== 0) {
+        // Light extrapolation: project forward using velocity
+        const extrapolatedX = rp.targetX + rp.velX * (timeSinceUpdate - rp.updateInterval) / 1000;
+        const extrapolatedY = rp.targetY + rp.velY * (timeSinceUpdate - rp.updateInterval) / 1000;
+        // Validate extrapolation (don't go through walls)
+        const mapCheckX = Math.floor(extrapolatedX);
+        const mapCheckY = Math.floor(extrapolatedY);
+        if (mapCheckX >= 0 && mapCheckX < E.MAP_W && mapCheckY >= 0 && mapCheckY < E.MAP_H &&
+            E.MAP[mapCheckY][mapCheckX] === 0) {
+          rp.x = E.smoothLerp(rp.x, extrapolatedX, INTERP_SMOOTHING, dt);
+          rp.y = E.smoothLerp(rp.y, extrapolatedY, INTERP_SMOOTHING, dt);
+        } else {
+          rp.x = E.smoothLerp(rp.x, rp.targetX, INTERP_SMOOTHING, dt);
+          rp.y = E.smoothLerp(rp.y, rp.targetY, INTERP_SMOOTHING, dt);
+        }
+      } else {
+        // Fallback: exponential smoothing only
+        rp.x = E.smoothLerp(rp.x, rp.targetX, INTERP_SMOOTHING, dt);
+        rp.y = E.smoothLerp(rp.y, rp.targetY, INTERP_SMOOTHING, dt);
+      }
+    }
+
+    // Angle always uses exponential smoothing (handles wrap-around)
+    rp.angle = E.smoothLerpAngle(rp.angle, rp.targetAngle, INTERP_SMOOTHING, dt);
+    // Jump uses exponential smoothing
+    rp.jumpZ = E.smoothLerp(rp.jumpZ, rp.targetJumpZ, INTERP_SMOOTHING, dt);
+
+    if (rp.hitFlash > 0) rp.hitFlash -= dt;
+    if (rp.muzzleFlash > 0) rp.muzzleFlash -= dt;
+  }
+}
+
+// ========================================
+// Game update loop
+// ========================================
 function gameUpdate(time, delta) {
   const dt = delta / 16.666;
 
   if (gameActive && player.alive && !gameOver && !optionsOpen) {
-    handleMovement(dt);
+    const entities = Array.from(remotePlayers.values());
+    E.handleMovement(player, keys, dt, entities, masterVolume, jumpAudio);
     handleShooting(dt);
   } else {
-    // Still tick down visual timers
-    if (player.muzzleFlash > 0) player.muzzleFlash -= dt;
-    if (player.weaponKick > 0) player.weaponKick -= dt * 0.3;
-    if (player.damageFlash > 0) player.damageFlash -= dt;
+    E.tickShootingVisuals(player, dt);
   }
 
-  // Interpolate remote players
-  for (const rp of remotePlayers.values()) {
-    rp.x += (rp.targetX - rp.x) * 0.3;
-    rp.y += (rp.targetY - rp.y) * 0.3;
-    // Angle interpolation (handle wrap-around)
-    let angleDiff = rp.targetAngle - rp.angle;
-    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-    rp.angle += angleDiff * 0.3;
-    rp.jumpZ += (rp.targetJumpZ - rp.jumpZ) * 0.3;
-    if (rp.hitFlash > 0) rp.hitFlash -= dt;
-  }
+  // Smooth interpolation of remote players (frame-rate independent)
+  interpolateRemotePlayers(dt);
+  updateProjectiles(dt);
 
-  // Update audio
   updateLocalFootsteps();
   updateRemoteAudio();
 
-  castRays();
-  renderRemotePlayers();
-  renderCtx.putImageData(frameImgData, 0, 0);
-  if (player.alive) renderWeapon();
-  renderHUD();
-  if (showMap) renderMinimap();
+  E.castRays(player);
+  E.renderSprites(player, buildRemotePlayerEntities());
+  E.renderProjectiles(player, projectiles);
+  E.commitFrame(this);
+  if (player.alive) E.renderWeapon(player);
 
-  this.textures.get('render').update();
+  // Headshot indicator
+  if (player.headshotIndicator > 0) {
+    player.headshotIndicator -= dt;
+    const hctx = E.getRenderCtx();
+    hctx.save();
+    hctx.globalAlpha = Math.min(1, player.headshotIndicator / 10);
+    hctx.fillStyle = '#f80';
+    hctx.font = 'bold 10px monospace';
+    hctx.textAlign = 'center';
+    hctx.fillText('HEADSHOT', E.RENDER_W / 2, E.RENDER_H / 2 + 25);
+    hctx.restore();
+  }
+
+  const aliveCount = Array.from(remotePlayers.values()).filter(rp => rp.alive).length + (player.alive ? 1 : 0);
+  E.renderHUD(player, {
+    centerTop: gameMode.toUpperCase(),
+    centerTopColor: '#0ff',
+    centerBottom: `ALIVE: ${aliveCount}`,
+    centerBottomColor: '#f0a',
+  });
+
+  if (showMap) {
+    const mapEnts = [];
+    for (const [name, rp] of remotePlayers) {
+      if (!rp.alive) continue;
+      if (gameMode === '2v2' && rp.team !== myTeam) continue;
+      mapEnts.push({ x: rp.x, y: rp.y, color: rp.color.body, isMP: true });
+    }
+    E.renderMinimap(player, mapEnts);
+  }
+
+  E.updatePhaserTexture(this);
 }
 
 // ========================================
-// Movement (same as single player)
+// Projectile System (visual tracers)
 // ========================================
-function handleMovement(dt) {
-  const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
-  player.crouching = !!keys['KeyC'];
-  const speed = (player.crouching ? player.crouchSpeed : sprint ? player.sprintSpeed : player.speed) * dt;
-  let moving = false;
-  let dx = 0, dy = 0;
+const projectiles = [];
 
-  if (keys['KeyW']) { dx += Math.cos(player.angle) * speed; dy += Math.sin(player.angle) * speed; moving = true; }
-  if (keys['KeyS']) { dx -= Math.cos(player.angle) * speed; dy -= Math.sin(player.angle) * speed; moving = true; }
-  if (keys['KeyA']) { dx += Math.cos(player.angle - Math.PI/2) * speed; dy += Math.sin(player.angle - Math.PI/2) * speed; moving = true; }
-  if (keys['KeyD']) { dx += Math.cos(player.angle + Math.PI/2) * speed; dy += Math.sin(player.angle + Math.PI/2) * speed; moving = true; }
+function spawnProjectile(x, y, angle) {
+  projectiles.push({ x, y, angle, speed: 1.5, life: 40 });
+}
 
-  // Collision detection with sliding (walls)
-  const r = 0.2;
-  let newX = player.x, newY = player.y;
-  if (MAP[Math.floor(player.y)][Math.floor(player.x + dx + Math.sign(dx) * r)] === 0) newX += dx;
-  if (MAP[Math.floor(newY + dy + Math.sign(dy) * r)][Math.floor(newX)] === 0) newY += dy;
-
-  // Collision detection with remote players (circle-vs-circle, slide around)
-  const colR = 0.4; // combined collision radius (player 0.2 + player 0.2)
-  for (const rp of remotePlayers.values()) {
-    if (!rp.alive) continue;
-    const ex = rp.x - newX, ey = rp.y - newY;
-    const dist = Math.sqrt(ex * ex + ey * ey);
-    if (dist < colR && dist > 0.001) {
-      const push = (colR - dist) / dist;
-      newX -= ex * push;
-      newY -= ey * push;
+function updateProjectiles(dt) {
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    p.x += Math.cos(p.angle) * p.speed * dt;
+    p.y += Math.sin(p.angle) * p.speed * dt;
+    p.life -= dt;
+    const mx = Math.floor(p.x), my = Math.floor(p.y);
+    if (mx < 0 || mx >= E.MAP_W || my < 0 || my >= E.MAP_H || E.MAP[my][mx] > 0 || p.life <= 0) {
+      projectiles.splice(i, 1);
     }
-  }
-
-  player.x = newX;
-  player.y = newY;
-
-  // Jump
-  if (keys['Space'] && player.onGround) {
-    player.jumpVel = 0.20;
-    player.onGround = false;
-    jumpAudio.currentTime = 0;
-    jumpAudio.volume = 0.5 * masterVolume;
-    jumpAudio.play().catch(() => {});
-  }
-  if (!player.onGround) {
-    player.jumpZ += player.jumpVel * dt;
-    player.jumpVel -= 0.010 * dt;
-    if (player.jumpZ <= 0) {
-      player.jumpZ = 0;
-      player.jumpVel = 0;
-      player.onGround = true;
-    }
-  }
-
-  // Track audible movement: walking or sprinting, NOT crouching, NOT airborne
-  player.moving = moving && !player.crouching && player.onGround;
-
-  // Crouch interpolation (smooth transition)
-  const crouchTarget = player.crouching ? 1 : 0;
-  player.crouchOffset += (crouchTarget - player.crouchOffset) * 0.2 * dt;
-
-  // Head bob
-  const bobSpeed = player.crouching ? 0.08 : (sprint ? 0.18 : 0.12);
-  if (moving) {
-    player.bobPhase += bobSpeed * dt;
-    player.bobAmount = Math.min(player.bobAmount + 0.1 * dt, 1);
-  } else {
-    player.bobAmount = Math.max(player.bobAmount - 0.08 * dt, 0);
   }
 }
 
 // ========================================
-// Shooting
+// MP Shooting
 // ========================================
 function handleShooting(dt) {
-  if (player.shootTimer > 0) player.shootTimer -= dt;
-  if (player.muzzleFlash > 0) player.muzzleFlash -= dt;
-  if (player.weaponKick > 0) player.weaponKick -= dt * 0.3;
-  if (player.damageFlash > 0) player.damageFlash -= dt;
+  E.tickShootingVisuals(player, dt);
 
   if (player.shooting && player.shootTimer <= 0 && player.ammo > 0) {
-    player.ammo--;
-    player.shootTimer = player.shootCooldown;
-    player.muzzleFlash = 4;
-    player.weaponKick = 6;
+    E.fireWeapon(player, shootAudio, masterVolume);
 
-    // Play shoot sound locally
-    shootAudio.currentTime = 0;
-    shootAudio.volume = 0.5 * masterVolume;
-    shootAudio.play().catch(() => {});
+    // Spawn visible tracer projectile (with spread)
+    const spreadAngle = (Math.random() - 0.5) * (player.spread || 0) * 0.015;
+    const spawnDist = 0.5;
+    spawnProjectile(
+      player.x + Math.cos(player.angle) * spawnDist,
+      player.y + Math.sin(player.angle) * spawnDist,
+      player.angle + spreadAngle
+    );
 
-    // Notify other players of the shot (for audio)
-    socket.emit('game:fire');
+    // Notify other players of the shot (for audio + muzzle flash)
+    socket.volatile.emit('game:fire');
 
     const hit = castHitscan();
     if (hit) {
-      socket.emit('game:shoot', { target: hit.username });
+      socket.emit('game:shoot', { target: hit.username, headshot: hit.headshot });
     }
   }
 }
@@ -1046,28 +835,27 @@ function handleShooting(dt) {
 function castHitscan() {
   let closest = null;
   let closestDist = Infinity;
-  const cx = RENDER_W / 2;
-  const cy = RENDER_H / 2;
+  // Apply bullet spread to effective aim point
+  const spread = player.spread || 0;
+  const cx = E.RENDER_W / 2 + (Math.random() - 0.5) * spread * 3;
+  const cy = E.RENDER_H / 2 + (Math.random() - 0.5) * spread * 3;
   const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
   const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
 
   for (const [name, rp] of remotePlayers) {
     if (!rp.alive) continue;
-    const dx = rp.x - player.x;
-    const dy = rp.y - player.y;
+    const dx = rp.x - player.x, dy = rp.y - player.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     let angle = Math.atan2(dy, dx) - player.angle;
     while (angle > Math.PI) angle -= 2 * Math.PI;
     while (angle < -Math.PI) angle += 2 * Math.PI;
 
-    if (Math.abs(angle) < FOV / 2) {
-      const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
-      const baseH = Math.min(RENDER_H * 1.5, (RENDER_H / dist) * 0.8);
-      // Width stays constant regardless of crouch
+    if (Math.abs(angle) < E.FOV / 2) {
+      const screenX = (E.RENDER_W / 2) + (angle / E.HALF_FOV) * (E.RENDER_W / 2);
+      const baseH = Math.min(E.RENDER_H * 1.5, (E.RENDER_H / dist) * 0.8);
       const halfW = baseH * 0.4;
 
       if (cx >= screenX - halfW && cx <= screenX + halfW && dist < closestDist) {
-        // Vertical hitbox check — crouch only lowers the top, bottom stays anchored
         const crouchScale = rp.crouching ? 0.6 : 1.0;
         const spriteH = baseH * crouchScale;
         const remoteJumpOffset = rp.jumpZ * 55 / Math.max(dist, 0.3);
@@ -1075,9 +863,10 @@ function castHitscan() {
         const spriteTop = spriteBottom - spriteH;
 
         if (cy >= spriteTop && cy <= spriteBottom) {
-          if (hasLineOfSight(player.x, player.y, rp.x, rp.y)) {
+          if (E.hasLineOfSight(player.x, player.y, rp.x, rp.y)) {
             closestDist = dist;
-            closest = { username: name, dist };
+            const headBoundary = spriteTop + spriteH * 0.25;
+            closest = { username: name, dist, headshot: cy < headBoundary };
           }
         }
       }
@@ -1086,338 +875,31 @@ function castHitscan() {
   return closest;
 }
 
-function hasLineOfSight(x0, y0, x1, y1) {
-  const dx = x1 - x0, dy = y1 - y0;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const steps = Math.ceil(dist * 4);
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const mx = Math.floor(x0 + dx * t);
-    const my = Math.floor(y0 + dy * t);
-    if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return false;
-    if (MAP[my][mx] > 0) return false;
-  }
-  return true;
-}
-
 // ========================================
-// Raycasting (same as single player)
+// Build remote player render list
 // ========================================
-function castRays() {
-  const imgData = renderCtx.createImageData(RENDER_W, RENDER_H);
-  const data = imgData.data;
-  const crouchShift = -player.crouchOffset * 25;
-  const jumpShift = player.jumpZ * 55;
-  const wallOffset = jumpShift + crouchShift;
-  // Counter-pitch: tilt horizon slightly opposite to jump to compensate for wall shift
-  const horizonY = RENDER_H / 2 + player.pitch + crouchShift - jumpShift * 0.3;
-
-  for (let y = 0; y < RENDER_H; y++) {
-    let r, g, b;
-    if (y < horizonY) {
-      const t = Math.max(0, Math.min(1, 1 - y / Math.max(1, horizonY)));
-      r = Math.floor(5 + t * 8); g = Math.floor(8 + t * 15); b = Math.floor(15 + t * 25);
-    } else {
-      const t = Math.max(0, Math.min(1, (y - horizonY) / Math.max(1, RENDER_H - horizonY)));
-      r = Math.floor(8 + t * 12); g = Math.floor(12 + t * 8); b = Math.floor(10 + t * 5);
-    }
-    for (let x = 0; x < RENDER_W; x++) {
-      const idx = (y * RENDER_W + x) * 4;
-      data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
-    }
-  }
-
-  for (let i = 0; i < NUM_RAYS; i++) {
-    const rayAngle = player.angle - HALF_FOV + (i / NUM_RAYS) * FOV;
-    const sin = Math.sin(rayAngle), cos = Math.cos(rayAngle);
-    let wallType = 0, side = 0;
-    let mapX = Math.floor(player.x), mapY = Math.floor(player.y);
-    const deltaDistX = Math.abs(1 / (cos || 0.0001));
-    const deltaDistY = Math.abs(1 / (sin || 0.0001));
-    const stepX = cos >= 0 ? 1 : -1, stepY = sin >= 0 ? 1 : -1;
-    let sideDistX = cos >= 0 ? (mapX + 1 - player.x) * deltaDistX : (player.x - mapX) * deltaDistX;
-    let sideDistY = sin >= 0 ? (mapY + 1 - player.y) * deltaDistY : (player.y - mapY) * deltaDistY;
-    let hit = false;
-    for (let step = 0; step < 64; step++) {
-      if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
-      else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
-      if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
-      if (MAP[mapY][mapX] > 0) { wallType = MAP[mapY][mapX]; hit = true; break; }
-    }
-    if (!hit) { depthBuffer[i] = MAX_DEPTH; continue; }
-
-    let dist;
-    if (side === 0) dist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
-    else dist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
-    dist = Math.max(dist, 0.01);
-    depthBuffer[i] = dist;
-
-    const lineHeight = Math.floor(RENDER_H / dist);
-    const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-    const horizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
-    const drawStart = Math.floor(horizon - lineHeight / 2);
-    const drawEnd = Math.floor(horizon + lineHeight / 2);
-
-    let wallX;
-    if (side === 0) wallX = player.y + dist * sin;
-    else wallX = player.x + dist * cos;
-    wallX -= Math.floor(wallX);
-    let texX = Math.floor(wallX * TEX_SIZE);
-    if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) texX = TEX_SIZE - texX - 1;
-
-    const tex = wallTextures[wallType];
-    if (!tex) continue;
-
-    const yStart = Math.max(0, drawStart);
-    const yEnd = Math.min(RENDER_H - 1, drawEnd);
-    const fogFactor = Math.min(1, dist / MAX_DEPTH);
-
-    for (let y = yStart; y <= yEnd; y++) {
-      const texY = Math.floor(((y - drawStart) / lineHeight) * TEX_SIZE) & (TEX_SIZE - 1);
-      const texIdx = (texY * TEX_SIZE + texX) * 4;
-      let r = tex.data[texIdx], g = tex.data[texIdx + 1], b = tex.data[texIdx + 2];
-      if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
-      r = Math.floor(r * (1 - fogFactor * 0.85));
-      g = Math.floor(g * (1 - fogFactor * 0.85));
-      b = Math.floor(b * (1 - fogFactor * 0.85));
-      const idx = (y * RENDER_W + i) * 4;
-      data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
-    }
-  }
-  frameImgData = imgData;
-}
-
-// ========================================
-// Render remote players (replaces renderNPCs)
-// ========================================
-function renderRemotePlayers() {
-  if (!frameImgData) return;
-  const data = frameImgData.data;
-
+function buildRemotePlayerEntities() {
   const sorted = [];
   for (const [name, rp] of remotePlayers) {
     if (!rp.alive) continue;
     const dx = rp.x - player.x, dy = rp.y - player.y;
-    sorted.push({ dist: Math.sqrt(dx*dx + dy*dy), dx, dy, ref: rp, username: name });
-  }
-  sorted.sort((a, b) => b.dist - a.dist);
-
-  const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
-
-  for (const rp of sorted) {
-    let angle = Math.atan2(rp.dy, rp.dx) - player.angle;
-    while (angle > Math.PI) angle -= 2*Math.PI;
-    while (angle < -Math.PI) angle += 2*Math.PI;
-    if (Math.abs(angle) > HALF_FOV + 0.2) continue;
-    if (rp.dist < 0.3) continue;
-
-    const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
-    const baseH = Math.min(RENDER_H * 1.5, (RENDER_H / rp.dist) * 0.8);
-    const crouchScale = rp.ref.crouching ? 0.6 : 1.0;
-    const spriteH = baseH * crouchScale;
-    const spriteW = baseH * 0.7;
-    const remoteJumpOffset = rp.ref.jumpZ * 55 / Math.max(rp.dist, 0.3);
-    const spriteTop = RENDER_H / 2 + baseH / 2 - spriteH + bobOffset + player.pitch + wallOffset - remoteJumpOffset;
-
-    const dir = getSpriteDir(rp.ref.angle, player.x, player.y, rp.ref.x, rp.ref.y);
-    const spriteArr = playerSprites[rp.username];
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const dir = E.getSpriteDir(rp.angle, player.x, player.y, rp.x, rp.y);
+    const spriteArr = playerSprites[name];
     if (!spriteArr) continue;
     const spriteInfo = spriteArr[dir];
     if (!spriteInfo) continue;
-    const spriteData = spriteInfo.data.data;
-
-    const startX = Math.floor(screenX - spriteW / 2);
-    const endX = Math.floor(screenX + spriteW / 2);
-    const startY = Math.max(0, Math.floor(spriteTop));
-    const endY = Math.min(RENDER_H - 1, Math.floor(spriteTop + spriteH));
-
-    const fogFactor = Math.min(0.85, rp.dist / MAX_DEPTH);
-    const brightness = 1 - fogFactor;
-    const flashIntensity = rp.ref.hitFlash > 0 ? Math.min(1, rp.ref.hitFlash / 5) : 0;
-
-    for (let sx = startX; sx < endX; sx++) {
-      if (sx < 0 || sx >= RENDER_W) continue;
-      if (rp.dist >= depthBuffer[sx]) continue;
-      const texX = Math.floor(((sx - startX) / (endX - startX)) * 64);
-      if (texX < 0 || texX >= 64) continue;
-
-      for (let sy = startY; sy <= endY; sy++) {
-        const texY = Math.floor(((sy - spriteTop) / spriteH) * 64);
-        if (texY < 0 || texY >= 64) continue;
-        const srcIdx = (texY * 64 + texX) * 4;
-        const sr = spriteData[srcIdx], sg = spriteData[srcIdx+1], sb = spriteData[srcIdx+2], sa = spriteData[srcIdx+3];
-        if (sa < 10) continue;
-        const dstIdx = (sy * RENDER_W + sx) * 4;
-        const alpha = sa / 255;
-        let r = sr * brightness, g = sg * brightness, b = sb * brightness;
-        if (flashIntensity > 0) {
-          r += (255 - r) * flashIntensity * 0.6;
-          g += (255 - g) * flashIntensity * 0.6;
-          b += (255 - b) * flashIntensity * 0.6;
-        }
-        data[dstIdx]     = Math.floor(data[dstIdx]     * (1 - alpha) + r * alpha);
-        data[dstIdx + 1] = Math.floor(data[dstIdx + 1] * (1 - alpha) + g * alpha);
-        data[dstIdx + 2] = Math.floor(data[dstIdx + 2] * (1 - alpha) + b * alpha);
-      }
-    }
+    sorted.push({
+      dist, dx, dy,
+      spriteData: spriteInfo.data.data,
+      hitFlash: rp.hitFlash > 0 ? Math.min(1, rp.hitFlash / 5) : 0,
+      muzzleFlash: rp.muzzleFlash > 0 ? rp.muzzleFlash : 0,
+      jumpZ: rp.jumpZ,
+      crouching: rp.crouching,
+    });
   }
-}
-
-// ========================================
-// Weapon rendering (same as single player)
-// ========================================
-function renderWeapon() {
-  const cx = RENDER_W / 2;
-  const bobX = Math.sin(player.bobPhase) * 4 * player.bobAmount;
-  const bobY = Math.abs(Math.cos(player.bobPhase)) * 3 * player.bobAmount;
-  const kickY = player.weaponKick * 3;
-  const baseX = cx + bobX, baseY = RENDER_H - 10 + bobY + kickY;
-
-  renderCtx.save();
-  renderCtx.fillStyle = '#1a1a2e';
-  renderCtx.fillRect(baseX - 12, baseY - 60, 24, 60);
-  renderCtx.fillStyle = '#16213e';
-  renderCtx.fillRect(baseX - 6, baseY - 90, 12, 35);
-  const pulse = Math.sin(Date.now() * 0.008) * 0.3 + 0.7;
-  renderCtx.fillStyle = `rgba(0, 255, 255, ${pulse})`;
-  renderCtx.fillRect(baseX - 4, baseY - 50, 8, 15);
-  renderCtx.fillStyle = '#0a0a1a';
-  renderCtx.fillRect(baseX - 16, baseY - 55, 4, 40);
-  renderCtx.fillRect(baseX + 12, baseY - 55, 4, 40);
-  renderCtx.fillStyle = '#0ff';
-  renderCtx.globalAlpha = 0.7;
-  renderCtx.fillRect(baseX - 15, baseY - 52, 2, 10);
-  renderCtx.fillRect(baseX + 13, baseY - 52, 2, 10);
-  renderCtx.globalAlpha = 1;
-
-  if (player.muzzleFlash > 0) {
-    const flashSize = player.muzzleFlash * 8;
-    renderCtx.globalAlpha = player.muzzleFlash / 4;
-    renderCtx.fillStyle = '#fff';
-    renderCtx.beginPath(); renderCtx.arc(baseX, baseY - 90, flashSize, 0, Math.PI * 2); renderCtx.fill();
-    renderCtx.fillStyle = '#0ff';
-    renderCtx.beginPath(); renderCtx.arc(baseX, baseY - 90, flashSize * 1.5, 0, Math.PI * 2); renderCtx.fill();
-    renderCtx.globalAlpha = 1;
-  }
-  renderCtx.restore();
-
-  // Crosshair
-  renderCtx.save();
-  renderCtx.strokeStyle = '#0ff';
-  renderCtx.lineWidth = 1;
-  renderCtx.globalAlpha = 0.8;
-  const chx = RENDER_W / 2, chy = RENDER_H / 2;
-  const gap = 4, len = 8;
-  renderCtx.beginPath();
-  renderCtx.moveTo(chx - gap - len, chy); renderCtx.lineTo(chx - gap, chy);
-  renderCtx.moveTo(chx + gap, chy); renderCtx.lineTo(chx + gap + len, chy);
-  renderCtx.moveTo(chx, chy - gap - len); renderCtx.lineTo(chx, chy - gap);
-  renderCtx.moveTo(chx, chy + gap); renderCtx.lineTo(chx, chy + gap + len);
-  renderCtx.stroke();
-  renderCtx.fillStyle = '#0ff';
-  renderCtx.fillRect(chx - 1, chy - 1, 2, 2);
-  renderCtx.restore();
-}
-
-// ========================================
-// HUD
-// ========================================
-function renderHUD() {
-  const ctx = renderCtx;
-  ctx.save();
-
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(0, RENDER_H - 30, RENDER_W, 30);
-  ctx.fillStyle = 'rgba(0,255,255,0.15)';
-  ctx.fillRect(0, RENDER_H - 30, RENDER_W, 1);
-  ctx.font = '8px monospace';
-
-  // Health
-  ctx.fillStyle = player.health > 30 ? '#0f0' : '#f00';
-  ctx.fillText('HP', 8, RENDER_H - 18);
-  ctx.fillStyle = '#111';
-  ctx.fillRect(24, RENDER_H - 24, 80, 10);
-  ctx.fillStyle = player.health > 30 ? '#0f0' : '#f00';
-  ctx.fillRect(24, RENDER_H - 24, Math.max(0, player.health) * 0.8, 10);
-  ctx.fillStyle = '#fff';
-  ctx.fillText(`${Math.max(0, player.health)}`, 28, RENDER_H - 16);
-
-  // Ammo
-  ctx.fillStyle = '#ff0';
-  ctx.font = 'bold 14px monospace';
-  ctx.fillText(`${player.ammo}`, RENDER_W - 50, RENDER_H - 10);
-  ctx.font = '7px monospace';
-  ctx.fillStyle = '#888';
-  ctx.fillText('PLASMA', RENDER_W - 52, RENDER_H - 22);
-
-  // Mode indicator
-  ctx.fillStyle = '#0ff';
-  ctx.font = '8px monospace';
-  ctx.fillText(gameMode.toUpperCase(), RENDER_W / 2 - 10, RENDER_H - 18);
-
-  // Alive count
-  const aliveCount = Array.from(remotePlayers.values()).filter(rp => rp.alive).length + (player.alive ? 1 : 0);
-  ctx.fillStyle = '#f0a';
-  ctx.fillText(`ALIVE: ${aliveCount}`, RENDER_W / 2 - 14, RENDER_H - 6);
-
-  // Damage flash
-  if (player.damageFlash > 0) {
-    ctx.fillStyle = `rgba(255,0,0,${player.damageFlash * 0.1})`;
-    ctx.fillRect(0, 0, RENDER_W, RENDER_H);
-  }
-  if (player.muzzleFlash > 2) {
-    ctx.fillStyle = `rgba(0,255,255,${(player.muzzleFlash - 2) * 0.04})`;
-    ctx.fillRect(0, 0, RENDER_W, RENDER_H);
-  }
-
-  ctx.restore();
-}
-
-// ========================================
-// Minimap
-// ========================================
-function renderMinimap() {
-  const ctx = renderCtx;
-  const size = 3, ox = 6, oy = 6;
-  ctx.save();
-  ctx.globalAlpha = 0.75;
-
-  ctx.fillStyle = 'rgba(0,0,0,0.8)';
-  ctx.fillRect(ox - 2, oy - 2, MAP_W * size + 4, MAP_H * size + 4);
-  ctx.strokeStyle = '#0ff';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(ox - 2, oy - 2, MAP_W * size + 4, MAP_H * size + 4);
-
-  const wallColors = { 1: '#088', 2: '#800', 3: '#080', 4: '#860', 5: '#408', 6: '#068' };
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      if (MAP[y][x] > 0) {
-        ctx.fillStyle = wallColors[MAP[y][x]] || '#444';
-        ctx.fillRect(ox + x * size, oy + y * size, size, size);
-      }
-    }
-  }
-
-  // Remote players on map (teammates only in 2v2)
-  for (const [name, rp] of remotePlayers) {
-    if (!rp.alive) continue;
-    if (gameMode === '2v2' && rp.team !== myTeam) continue;
-    ctx.fillStyle = rp.color.body;
-    ctx.fillRect(ox + rp.x * size - 1, oy + rp.y * size - 1, 3, 3);
-  }
-
-  // Self
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(ox + player.x * size - 1.5, oy + player.y * size - 1.5, 3, 3);
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(ox + player.x * size, oy + player.y * size);
-  ctx.lineTo(ox + (player.x + Math.cos(player.angle) * 2) * size,
-             oy + (player.y + Math.sin(player.angle) * 2) * size);
-  ctx.stroke();
-  ctx.restore();
+  sorted.sort((a, b) => b.dist - a.dist);
+  return sorted;
 }
 
 // ========================================
@@ -1427,7 +909,6 @@ function updatePlayerHUD() {
   const hud = document.getElementById('player-hud');
   let html = '';
 
-  // All players including self
   const allPlayers = [
     { username: mpUsername, health: player.health, alive: player.alive, team: myTeam, self: true },
     ...Array.from(remotePlayers.entries()).map(([name, rp]) => ({
@@ -1436,7 +917,6 @@ function updatePlayerHUD() {
     })),
   ];
 
-  // Sort: self first, then by team, then by name
   allPlayers.sort((a, b) => {
     if (a.self) return -1;
     if (b.self) return 1;
@@ -1455,7 +935,7 @@ function updatePlayerHUD() {
     const deadClass = p.alive ? '' : ' phud-dead';
 
     html += '<div class="phud-entry' + deadClass + '">' +
-      '<span class="phud-name" style="color:' + nameColor + '">' + escapeHtml(p.username) + '</span>' +
+      '<span class="phud-name" style="color:' + nameColor + '">' + E.escapeHtml(p.username) + '</span>' +
       '<div class="phud-hp-bar"><div class="phud-hp-fill" style="width:' + hpPct + '%;background:' + hpColor + '"></div></div>' +
     '</div>';
   }
@@ -1466,20 +946,19 @@ function updatePlayerHUD() {
 // ========================================
 // Kill feed
 // ========================================
-function addKillFeedEntry(killer, victim) {
+function addKillFeedEntry(killer, victim, headshot) {
   const feed = document.getElementById('kill-feed');
   const el = document.createElement('div');
   el.className = 'kill-feed-entry';
   if (killer) {
-    el.innerHTML = '<span class="kf-killer">' + escapeHtml(killer) + '</span>' +
-      ' <span class="kf-arrow">&gt;</span> ' +
-      '<span class="kf-victim">' + escapeHtml(victim) + '</span>';
+    const hsTag = headshot ? ' <span class="kf-hs">[HS]</span>' : '';
+    el.innerHTML = '<span class="kf-killer">' + E.escapeHtml(killer) + '</span>' +
+      hsTag + ' <span class="kf-arrow">&gt;</span> ' +
+      '<span class="kf-victim">' + E.escapeHtml(victim) + '</span>';
   } else {
-    el.innerHTML = '<span class="kf-victim">' + escapeHtml(victim) + '</span> disconnected';
+    el.innerHTML = '<span class="kf-victim">' + E.escapeHtml(victim) + '</span> disconnected';
   }
   feed.appendChild(el);
-
-  // Fade out after 5 seconds
   setTimeout(() => {
     el.style.opacity = '0';
     setTimeout(() => el.remove(), 500);
@@ -1495,7 +974,6 @@ function showScoreScreen(result, stats, mode) {
   const modeEl = document.getElementById('score-mode');
   const tableEl = document.getElementById('score-table');
 
-  // Determine if we won
   let titleText, titleClass;
   if (mode === '2v2') {
     if (result.winnerTeam === myTeam) {
@@ -1517,20 +995,20 @@ function showScoreScreen(result, stats, mode) {
   titleEl.className = 'score-title ' + titleClass;
   modeEl.textContent = mode.toUpperCase() + ' MATCH';
 
-  // Build table
   let html = '<thead><tr><th>Operator</th>' +
     (mode === '2v2' ? '<th>Team</th>' : '') +
-    '<th>Kills</th><th>Deaths</th><th>Damage</th></tr></thead><tbody>';
+    '<th>Kills</th><th>Deaths</th><th>HS</th><th>Damage</th></tr></thead><tbody>';
 
   stats.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
   for (const s of stats) {
     const isSelf = s.username === mpUsername;
     const nameClass = isSelf ? 'st-self' : (mode === '2v2' ? (s.team === 0 ? 'st-team0' : 'st-team1') : 'st-name');
     html += '<tr>' +
-      '<td class="' + nameClass + '">' + escapeHtml(s.username) + '</td>' +
+      '<td class="' + nameClass + '">' + E.escapeHtml(s.username) + '</td>' +
       (mode === '2v2' ? '<td class="' + (s.team === 0 ? 'st-team0' : 'st-team1') + '">' + (s.team === 0 ? 'CYAN' : 'MAGENTA') + '</td>' : '') +
       '<td class="st-kills">' + s.kills + '</td>' +
       '<td class="st-deaths">' + s.deaths + '</td>' +
+      '<td class="st-headshots">' + (s.headshots || 0) + '</td>' +
       '<td class="st-damage">' + s.damageDealt + '</td>' +
     '</tr>';
   }
@@ -1539,23 +1017,13 @@ function showScoreScreen(result, stats, mode) {
 
   overlay.style.display = 'flex';
 
-  // Release pointer lock
   if (document.pointerLockElement) {
     try { document.exitPointerLock(); } catch(e) {}
   }
 }
 
 // ========================================
-// Utility
-// ========================================
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-// ========================================
-// Socket.IO networking
+// Socket.IO networking (optimized)
 // ========================================
 const socket = io({
   auth: { token, gameId }
@@ -1574,14 +1042,11 @@ socket.on('game:error', (data) => {
 
 // Countdown phase
 socket.on('game:countdown', () => {
-  const overlay = document.getElementById('countdown-overlay');
   const textEl = document.getElementById('countdown-text');
   const subEl = document.getElementById('countdown-sub');
-
   subEl.textContent = 'Get ready!';
   let count = 3;
   textEl.textContent = count;
-
   const interval = setInterval(() => {
     count--;
     if (count > 0) {
@@ -1595,38 +1060,95 @@ socket.on('game:countdown', () => {
 
 // Game starts
 socket.on('game:go', () => {
-  const overlay = document.getElementById('countdown-overlay');
-  overlay.style.display = 'none';
-
+  document.getElementById('countdown-overlay').style.display = 'none';
   const container = document.getElementById('game-container');
   container.classList.add('locked');
   document.body.classList.add('locked');
-
   gameActive = true;
   try { game.canvas.requestPointerLock(); } catch(e) {}
 
-  // Start broadcasting position
+  // State broadcast — use volatile emit so stale updates are dropped under backpressure.
+  // 20Hz tick rate (50ms) with binary-packed data for efficiency.
+  let lastSentState = null;
+
   setInterval(() => {
     if (!gameActive || !player.alive || gameOver) return;
-    socket.emit('game:state', {
-      x: player.x,
-      y: player.y,
-      angle: player.angle,
+
+    // Delta compression: only send full state if something meaningful changed
+    const newState = {
+      x: Math.round(player.x * 100) / 100,
+      y: Math.round(player.y * 100) / 100,
+      angle: Math.round(player.angle * 1000) / 1000,
       crouching: player.crouching,
-      jumpZ: player.jumpZ,
+      jumpZ: Math.round(player.jumpZ * 100) / 100,
       moving: player.moving,
       onGround: player.onGround,
-    });
-  }, 66); // ~15Hz
+    };
 
-  // Start HUD updates
+    // Pack boolean flags into a single byte for efficiency
+    const flags = (newState.crouching ? 1 : 0) |
+                  (newState.moving ? 2 : 0) |
+                  (newState.onGround ? 4 : 0);
+
+    // Skip if nothing changed (position + angle + flags all same)
+    if (lastSentState &&
+        newState.x === lastSentState.x &&
+        newState.y === lastSentState.y &&
+        newState.angle === lastSentState.angle &&
+        newState.jumpZ === lastSentState.jumpZ &&
+        flags === lastSentState.flags) {
+      return;
+    }
+
+    lastSentState = { ...newState, flags };
+
+    // Use volatile emit — if the transport is backlogged, skip this update
+    // rather than queuing stale state
+    socket.volatile.emit('game:state', {
+      x: newState.x,
+      y: newState.y,
+      angle: newState.angle,
+      crouching: newState.crouching,
+      jumpZ: newState.jumpZ,
+      moving: newState.moving,
+      onGround: newState.onGround,
+    });
+  }, 50); // 20Hz (up from 15Hz for smoother remote player updates)
+
   setInterval(updatePlayerHUD, 200);
 });
 
-// Remote player state updates
+// Remote player state updates — with velocity estimation for interpolation
 socket.on('game:playerState', (data) => {
   const rp = remotePlayers.get(data.username);
   if (!rp) return;
+
+  const now = performance.now();
+
+  // Measure actual update interval for interpolation timing
+  if (rp.lastUpdateTime > 0) {
+    const measured = now - rp.lastUpdateTime;
+    // Exponential moving average of update interval (smooth out jitter)
+    rp.updateInterval = rp.updateInterval * 0.7 + measured * 0.3;
+  }
+
+  // Store previous position for Hermite interpolation
+  rp.prevX = rp.x;
+  rp.prevY = rp.y;
+  rp.prevAngle = rp.angle;
+
+  // Estimate velocity from position delta (units per second)
+  if (rp.lastUpdateTime > 0) {
+    const elapsed = (now - rp.lastUpdateTime) / 1000;
+    if (elapsed > 0) {
+      rp.velX = (data.x - rp.targetX) / elapsed;
+      rp.velY = (data.y - rp.targetY) / elapsed;
+    }
+  }
+
+  rp.lastUpdateTime = now;
+
+  // Update targets
   rp.targetX = data.x;
   rp.targetY = data.y;
   rp.targetAngle = data.angle;
@@ -1637,10 +1159,22 @@ socket.on('game:playerState', (data) => {
   rp.onGround = !!data.onGround;
 });
 
-// Remote player fired weapon (audio only)
+// Remote player fired weapon (audio + muzzle flash + tracer)
 socket.on('game:playerFire', (data) => {
   const rp = remotePlayers.get(data.username);
   if (!rp || !rp.alive) return;
+
+  // Muzzle flash on their sprite
+  rp.muzzleFlash = 4;
+
+  // Spawn visible tracer from their position
+  spawnProjectile(
+    rp.x + Math.cos(rp.angle) * 0.5,
+    rp.y + Math.sin(rp.angle) * 0.5,
+    rp.angle
+  );
+
+  // Remote audio
   const audio = remoteAudio.get(data.username);
   if (!audio) return;
   const vol = getRemoteVolume(rp) * 0.5;
@@ -1655,19 +1189,23 @@ socket.on('game:playerFire', (data) => {
 socket.on('game:playerHit', (data) => {
   if (data.target === mpUsername) {
     player.health = data.newHealth;
-    player.damageFlash = 6;
+    player.damageFlash = data.headshot ? 10 : 6;
   } else {
     const rp = remotePlayers.get(data.target);
     if (rp) {
       rp.health = data.newHealth;
       rp.hitFlash = 8;
     }
+    // Headshot indicator for shooter
+    if (data.shooter === mpUsername && data.headshot) {
+      player.headshotIndicator = 40;
+    }
   }
 });
 
 // Player killed
 socket.on('game:playerKill', (data) => {
-  addKillFeedEntry(data.killer, data.victim);
+  addKillFeedEntry(data.killer, data.victim, data.headshot);
 
   if (data.victim === mpUsername) {
     player.alive = false;
@@ -1696,6 +1234,39 @@ socket.on('game:over', (data) => {
   stopAllAudio();
   document.getElementById('death-overlay').style.display = 'none';
   showScoreScreen(data.result, data.stats, data.mode);
+});
+
+// ========================================
+// Rematch
+// ========================================
+let rematchRequested = false;
+
+function requestRematch() {
+  if (rematchRequested) return;
+  rematchRequested = true;
+  socket.emit('game:rematch');
+  const btn = document.getElementById('rematch-btn');
+  btn.style.opacity = '0.6';
+  btn.style.cursor = 'default';
+  btn.textContent = 'VOTED...';
+}
+
+socket.on('game:rematchUpdate', (data) => {
+  const btn = document.getElementById('rematch-btn');
+  if (!btn) return;
+  if (rematchRequested) {
+    btn.textContent = 'REMATCH ' + data.count + '/' + data.total;
+  } else {
+    btn.textContent = 'Rematch ' + data.count + '/' + data.total;
+  }
+});
+
+socket.on('game:rematchStarting', (data) => {
+  sessionStorage.setItem('tp_gameId', data.gameId);
+  sessionStorage.setItem('tp_spawnData', JSON.stringify(data.spawnData));
+  sessionStorage.setItem('tp_gameMode', data.mode);
+  sessionStorage.setItem('tp_friendlyFire', data.friendlyFire ? '1' : '0');
+  window.location.href = '/mp-game.html';
 });
 </script>
 </body>

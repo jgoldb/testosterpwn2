@@ -261,53 +261,14 @@
 })();
 </script>
 
+<script src="/js/engine.js"></script>
 <script>
 // =============================================
-// TESTOSTERPWN: THE RECKONING OF MAN
-// A Doom-style Raycasting FPS built with Phaser
+// TESTOSTERPWN: SINGLE PLAYER
+// SP-specific code: NPCs, NPC rendering, hitscan, pause
 // =============================================
 
-const SCREEN_W = 960;
-const SCREEN_H = 600;
-const RENDER_W = 480;
-const RENDER_H = 300;
-const TEX_SIZE = 64;
-const FOV = Math.PI / 3;
-const HALF_FOV = FOV / 2;
-const NUM_RAYS = RENDER_W;
-const MAX_DEPTH = 30;
-const TILE_SIZE = 1;
-
-// Map: 0=empty, 1-6=wall types
-const MAP = [
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,2,2,2,0,0,0,3,3,3,3,3,0,0,0,4,4,4,0,0,0,1],
-  [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,0,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
-  [1,0,0,2,2,0,0,0,0,4,4,0,0,4,4,0,0,0,0,2,2,0,0,1],
-  [1,0,0,0,2,0,0,0,0,4,0,0,0,0,4,0,0,0,2,0,0,0,0,1],
-  [1,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-];
-
-const MAP_H = MAP.length;
-const MAP_W = MAP[0].length;
+const E = window.Engine;
 
 // NPC definitions
 const NPCS = [
@@ -324,207 +285,16 @@ const NPCS = [
 // Player state
 const player = {
   x: 12, y: 21, angle: -Math.PI / 2, pitch: 0,
-  speed: 0.04, sprintSpeed: 0.07, crouchSpeed: 0.02, rotSpeed: 0.004,
+  speed: 0.04, sprintSpeed: 0.07, crouchSpeed: 0.02, rotSpeed: E.BASE_ROT_SPEED,
   health: 100, armor: 50, ammo: 250,
   bobPhase: 0, bobAmount: 0,
-  shooting: false, shootTimer: 0, shootCooldown: 45,
-  muzzleFlash: 0,
-  weaponKick: 0,
-  damageFlash: 0,
+  shooting: false, shootTimer: 0, shootCooldown: 21,
+  muzzleFlash: 0, weaponKick: 0, damageFlash: 0, spread: 0,
   jumpZ: 0, jumpVel: 0, onGround: true,
   crouching: false, crouchOffset: 0,
 };
 
-// Generate wall textures procedurally
-function generateTextures() {
-  const textures = {};
-  const types = {
-    1: { base: [20, 30, 40], accent: [0, 255, 255], name: 'hull' },
-    2: { base: [40, 15, 15], accent: [255, 50, 50], name: 'danger' },
-    3: { base: [15, 35, 20], accent: [0, 255, 100], name: 'bio' },
-    4: { base: [35, 25, 10], accent: [255, 160, 0], name: 'energy' },
-    5: { base: [30, 20, 40], accent: [180, 50, 255], name: 'void' },
-    6: { base: [15, 25, 35], accent: [50, 150, 255], name: 'tech' },
-  };
-
-  for (const [id, t] of Object.entries(types)) {
-    const canvas = document.createElement('canvas');
-    canvas.width = TEX_SIZE;
-    canvas.height = TEX_SIZE;
-    const ctx = canvas.getContext('2d');
-
-    // Base fill
-    ctx.fillStyle = `rgb(${t.base[0]},${t.base[1]},${t.base[2]})`;
-    ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
-
-    // Panel lines
-    ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.15)`;
-    ctx.lineWidth = 1;
-    for (let i = 0; i < TEX_SIZE; i += 16) {
-      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, TEX_SIZE); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(TEX_SIZE, i); ctx.stroke();
-    }
-
-    // Accent glow strips
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.6)`;
-    ctx.fillRect(0, 30, TEX_SIZE, 2);
-    ctx.fillRect(0, 50, TEX_SIZE, 1);
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.3)`;
-    ctx.fillRect(0, 29, TEX_SIZE, 1);
-    ctx.fillRect(0, 32, TEX_SIZE, 1);
-
-    // Tech detail
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.4)`;
-    ctx.fillRect(4, 4, 8, 8);
-    ctx.fillRect(52, 4, 8, 8);
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.8)`;
-    ctx.fillRect(6, 6, 4, 4);
-    ctx.fillRect(54, 6, 4, 4);
-
-    // Noise/grain
-    const imgData = ctx.getImageData(0, 0, TEX_SIZE, TEX_SIZE);
-    for (let p = 0; p < imgData.data.length; p += 4) {
-      const noise = (Math.random() - 0.5) * 12;
-      imgData.data[p] = Math.max(0, Math.min(255, imgData.data[p] + noise));
-      imgData.data[p+1] = Math.max(0, Math.min(255, imgData.data[p+1] + noise));
-      imgData.data[p+2] = Math.max(0, Math.min(255, imgData.data[p+2] + noise));
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    textures[id] = ctx.getImageData(0, 0, TEX_SIZE, TEX_SIZE);
-  }
-  return textures;
-}
-
-// Generate NPC sprites procedurally
-// Get sprite direction index (0-7) based on entity facing vs viewer position
-function getSpriteDir(entityAngle, vx, vy, ex, ey) {
-  let r = Math.atan2(vy - ey, vx - ex) - entityAngle;
-  r = ((r % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  return Math.floor((r + Math.PI / 8) / (Math.PI / 4)) % 8;
-}
-
-// Generate 8-directional sprites for a character
-// Dirs: 0=front, 1=front-left, 2=left, 3=back-left, 4=back, 5=back-right, 6=right, 7=front-right
-function generateDirectionalSprites(bodyColor, eyeColor, glowColor, baseW) {
-  const sprites = [];
-  for (let d = 0; d < 8; d++) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    const cx = 32, cy = 32;
-
-    // Dirs 5-7 mirror dirs 3-1 for the body, weapon drawn separately
-    const bd = d <= 4 ? d : 8 - d;
-    const flip = d > 4;
-    const ws = bd === 2 ? 0.55 : (bd === 1 || bd === 3) ? 0.8 : 1.0;
-    const w = Math.floor(baseW * ws);
-    const front = bd <= 1, back = bd >= 3, side = bd === 2;
-
-    if (flip) { ctx.translate(64, 0); ctx.scale(-1, 1); }
-
-    // Body glow
-    const grd = ctx.createRadialGradient(cx, cy + 4, 2, cx, cy + 4, w * 0.8);
-    grd.addColorStop(0, `rgba(${glowColor},0.3)`);
-    grd.addColorStop(1, `rgba(${glowColor},0)`);
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, 64, 64);
-
-    // Legs
-    ctx.fillStyle = '#333';
-    if (side) {
-      ctx.fillRect(cx - 2, cy + 16, 5, 12);
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(cx - 1, cy + 26, 3, 2);
-    } else {
-      ctx.fillRect(cx - 5, cy + 16, 5, 12);
-      ctx.fillRect(cx + 1, cy + 16, 5, 12);
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(cx - 4, cy + 26, 3, 2);
-      ctx.fillRect(cx + 2, cy + 26, 3, 2);
-    }
-
-    // Torso
-    const tw = w - (side ? 8 : 16);
-    ctx.fillStyle = '#222';
-    ctx.fillRect(cx - tw / 2, cy - 8, tw, 26);
-    ctx.strokeStyle = bodyColor;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cx - tw / 2, cy - 8, tw, 26);
-
-    // Front: energy core / Back: exhaust panel
-    if (front) {
-      ctx.fillStyle = bodyColor;
-      ctx.beginPath(); ctx.arc(cx, cy + 4, 4, 0, Math.PI * 2); ctx.fill();
-    }
-    if (back) {
-      ctx.fillStyle = bodyColor;
-      ctx.globalAlpha = 0.4;
-      ctx.fillRect(cx - 5, cy - 2, 10, 14);
-      ctx.globalAlpha = 1;
-      ctx.fillRect(cx - 3, cy + 1, 6, 2);
-      ctx.fillRect(cx - 3, cy + 6, 6, 2);
-    }
-
-    // Head
-    const hw = Math.floor(20 * ws);
-    ctx.fillStyle = '#181818';
-    ctx.fillRect(cx - hw / 2, cy - 20, hw, 14);
-
-    // Eyes (front/side only)
-    if (bd === 0) {
-      ctx.fillStyle = eyeColor;
-      ctx.fillRect(cx - 7, cy - 16, 5, 4);
-      ctx.fillRect(cx + 2, cy - 16, 5, 4);
-    } else if (bd === 1) {
-      ctx.fillStyle = eyeColor;
-      ctx.fillRect(cx - hw / 2 + 1, cy - 16, 4, 4);
-      ctx.fillRect(cx - hw / 2 + 7, cy - 16, 5, 4);
-    } else if (side) {
-      ctx.fillStyle = eyeColor;
-      ctx.fillRect(cx - hw / 2 + 1, cy - 16, 5, 4);
-    }
-    // Back-of-head accent
-    if (back) {
-      ctx.fillStyle = bodyColor;
-      ctx.globalAlpha = 0.3;
-      ctx.fillRect(cx - hw / 2 + 2, cy - 18, hw - 4, 2);
-      ctx.globalAlpha = 1;
-    }
-
-    // Shoulders
-    if (side) {
-      ctx.fillStyle = '#333';
-      ctx.fillRect(cx - w / 2, cy - 6, 5, 12);
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(cx - w / 2 + 1, cy - 4, 3, 2);
-    } else {
-      const sw = Math.max(4, Math.floor(7 * ws));
-      ctx.fillStyle = '#333';
-      ctx.fillRect(cx - w / 2 + 2, cy - 6, sw, 12);
-      ctx.fillRect(cx + w / 2 - sw - 2, cy - 6, sw, 12);
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(cx - w / 2 + 3, cy - 4, Math.min(5, sw), 2);
-      ctx.fillRect(cx + w / 2 - sw - 1, cy - 4, Math.min(5, sw), 2);
-    }
-
-    // Reset transform for weapon (drawn in screen-space)
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    // Weapon arm: visible for front (dir 0) and right-side views (dirs 5,6,7)
-    if (d === 0 || d >= 5) {
-      const wx = cx + Math.floor(w / 2) - 6;
-      ctx.fillStyle = '#444';
-      ctx.fillRect(wx, cy, 14, 4);
-      ctx.fillStyle = eyeColor;
-      ctx.fillRect(wx + 12, cy, 3, 4);
-    }
-
-    sprites.push({ canvas, data: ctx.getImageData(0, 0, 64, 64) });
-  }
-  return sprites;
-}
-
+// Generate NPC sprites
 function generateNPCSprites() {
   const sprites = {};
   const npcTypes = {
@@ -533,74 +303,36 @@ function generateNPCSprites() {
     heavy: { w: 44, bodyColor: '#f0f', eyeColor: '#0f0', glowColor: '255,0,255' },
   };
   for (const [name, cfg] of Object.entries(npcTypes)) {
-    sprites[name] = generateDirectionalSprites(cfg.bodyColor, cfg.eyeColor, cfg.glowColor, cfg.w);
+    sprites[name] = E.generateDirectionalSprites(cfg.bodyColor, cfg.eyeColor, cfg.glowColor, cfg.w);
   }
   return sprites;
 }
 
-let wallTextures, npcSprites;
+let npcSprites;
 let gameStarted = false;
 let gamePaused = false;
 let showMap = false;
 let keys = {};
-
-// Master volume and sensitivity multipliers
 let masterVolume = 1.0;
-const BASE_ROT_SPEED = 0.004;
 
-// Footstep audio (local player only)
+// Audio
 const localFootstepAudio = new Audio('/audio/footsteps.mp3');
 localFootstepAudio.loop = true;
 localFootstepAudio.volume = 0.4;
 
-// Jump audio
 const jumpAudio = new Audio('/audio/jump.mp3');
 jumpAudio.volume = 0.5;
 
-// Shoot audio
 const shootAudio = new Audio('/audio/shoot.mp3');
 shootAudio.volume = 0.5;
 
-// Phaser config
-const config = {
-  type: Phaser.CANVAS,
-  width: SCREEN_W,
-  height: SCREEN_H,
-  parent: 'game-container',
-  backgroundColor: '#000000',
-  scene: { preload, create, update },
-  audio: { noAudio: true },
-  banner: false,
-  fps: { target: 60, forceSetTimeOut: false },
-  render: { pixelArt: true, antialias: false },
-};
+// --- Phaser ---
+const game = E.initPhaser('game-container', create, update);
 
-const game = new Phaser.Game(config);
-let renderTex, renderCtx, depthBuffer, frameImgData;
-
-// ---- Preload ----
-function preload() {}
-
-// ---- Create ----
 function create() {
-  wallTextures = generateTextures();
   npcSprites = generateNPCSprites();
+  E.initRenderCanvas(this);
 
-  // Create offscreen render buffer
-  const renderCanvas = document.createElement('canvas');
-  renderCanvas.width = RENDER_W;
-  renderCanvas.height = RENDER_H;
-  renderCtx = renderCanvas.getContext('2d', { willReadFrequently: true });
-  depthBuffer = new Float32Array(RENDER_W);
-
-  // Phaser texture from canvas
-  this.textures.addCanvas('render', renderCanvas);
-  renderTex = this.add.image(SCREEN_W / 2, SCREEN_H / 2, 'render');
-  renderTex.setDisplaySize(SCREEN_W, SCREEN_H);
-
-  // === INPUT SYSTEM — pointer lock primary, clientX delta fallback ===
-  // Disable Phaser's mouse handling completely
-  try { this.input.mouse.enabled = false; } catch(e) {}
   try { game.input.mouse.enabled = false; } catch(e) {}
 
   const gameCanvas = game.canvas;
@@ -612,10 +344,8 @@ function create() {
     pauseScreen.style.display = 'none';
     container.classList.add('locked');
     document.body.classList.add('locked');
-    lastClientX = null;
-    lastClientY = null;
-
-    // Try pointer lock — if it works, great; if not, fallback is already active
+    inputOpts._lastClientX = null;
+    inputOpts._lastClientY = null;
     try { gameCanvas.requestPointerLock(); } catch(e) {}
   }
 
@@ -628,14 +358,11 @@ function create() {
     pauseScreen.style.display = 'flex';
     container.classList.remove('locked');
     document.body.classList.remove('locked');
-
-    // Release pointer lock if we have it
     if (document.pointerLockElement) {
       try { document.exitPointerLock(); } catch(e) {}
     }
   }
 
-  // Pointer lock state changes — browser fires this on ESC or exitPointerLock()
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === gameCanvas) {
       gamePaused = false;
@@ -643,36 +370,12 @@ function create() {
       container.classList.add('locked');
       document.body.classList.add('locked');
     } else if (gameStarted && !gamePaused) {
-      // Lost pointer lock unexpectedly (browser ESC) — pause
       release();
     }
   });
 
-  // Keyboard — ESC toggles pause, other keys blocked when paused
-  document.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
-    if (!gameStarted) return;
-    if (e.code === 'Escape') {
-      e.preventDefault();
-      // If pointer lock is active, the browser consumes ESC and fires
-      // pointerlockchange which calls release(). Nothing to do here.
-      // If no pointer lock (fallback mode or lock not re-acquired), toggle manually.
-      if (!document.pointerLockElement) {
-        if (gamePaused) { capture(); } else { release(); }
-      }
-      return;
-    }
-    if (gamePaused) return;
-    keys[e.code] = true;
-    if (e.code === 'Tab') showMap = !showMap;
-  }, true);
-  document.addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-  }, true);
-
   // Click to resume from pause
   pauseScreen.addEventListener('click', (e) => {
-    // Don't resume if clicking the menu link or interacting with sliders
     if (e.target.classList.contains('menu-link')) return;
     if (e.target.tagName === 'INPUT') return;
     e.stopPropagation();
@@ -691,46 +394,31 @@ function create() {
   const spSensSlider = document.getElementById('sp-opt-sensitivity');
   const spSensValue = document.getElementById('sp-sens-value');
   spSensSlider.addEventListener('input', () => {
-    player.rotSpeed = BASE_ROT_SPEED * (spSensSlider.value / 100);
+    player.rotSpeed = E.BASE_ROT_SPEED * (spSensSlider.value / 100);
     spSensValue.textContent = spSensSlider.value + '%';
   });
 
-  // Mouse look
-  let lastClientX = null;
-  let lastClientY = null;
-  const MAX_PITCH = RENDER_H * 0.75;
-
-  document.addEventListener('mousemove', (e) => {
-    if (!gameStarted || gamePaused) return;
-
-    if (document.pointerLockElement === gameCanvas) {
-      // Pointer lock mode: use movementX/Y — cursor is truly trapped
-      player.angle += e.movementX * player.rotSpeed;
-      player.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH,
-        player.pitch - e.movementY * player.rotSpeed * 450));
-    } else {
-      // Fallback mode: clientX/Y delta tracking
-      if (lastClientX !== null) {
-        const dx = e.clientX - lastClientX;
-        const dy = e.clientY - lastClientY;
-        player.angle += dx * player.rotSpeed;
-        player.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH,
-          player.pitch - dy * player.rotSpeed * 450));
+  // Input setup via shared engine
+  const inputOpts = {
+    gameCanvas, container, player,
+    getKeys: () => keys,
+    useFallbackMouse: true,
+    _lastClientX: null, _lastClientY: null,
+    shouldIgnoreInput: () => !gameStarted,
+    isPaused: () => gamePaused,
+    shouldIgnoreMouseMove: () => !gameStarted || gamePaused,
+    onEscape: () => {
+      if (!document.pointerLockElement) {
+        if (gamePaused) { capture(); } else { release(); }
       }
-      lastClientX = e.clientX;
-      lastClientY = e.clientY;
-    }
-  }, true);
-
-  // Shooting
-  document.addEventListener('mousedown', (e) => {
-    if (!gameStarted || gamePaused) return;
-    player.shooting = true;
-  }, true);
-
-  document.addEventListener('mouseup', () => {
-    player.shooting = false;
-  }, true);
+    },
+    onTab: () => { showMap = !showMap; },
+    onMouseDown: (e) => {
+      if (!gameStarted || gamePaused) return;
+      player.shooting = true;
+    },
+  };
+  E.setupInput(inputOpts);
 }
 
 // ---- Start game ----
@@ -740,141 +428,38 @@ document.getElementById('start-btn').addEventListener('click', () => {
   document.body.classList.add('locked');
   gameStarted = true;
   gamePaused = false;
-  // Try pointer lock — silently falls back if unavailable
   try { game.canvas.requestPointerLock(); } catch(e) {}
 });
 
-// ---- Update ----
-function update(time, delta) {
-  if (!gameStarted) return;
+// ---- Projectile System ----
+const projectiles = [];
 
-  const dt = delta / 16.666;
-  if (!gamePaused) {
-    handleMovement(dt);
-    handleShooting(dt);
-  }
-
-  // Update footstep audio: suppress while airborne
-  if (!gamePaused && player.moving && player.onGround) {
-    localFootstepAudio.volume = 0.4 * masterVolume;
-    if (localFootstepAudio.paused) localFootstepAudio.play().catch(() => {});
-  } else {
-    localFootstepAudio.pause();
-  }
-
-  castRays();        // writes walls into frameImgData
-  renderNPCs();      // writes NPC pixels into frameImgData
-  renderCtx.putImageData(frameImgData, 0, 0); // commit pixel buffer
-  renderWeapon();    // canvas overlay
-  renderHUD();       // canvas overlay
-  if (showMap) renderMinimap();
-
-  // Tell Phaser the canvas texture has been updated
-  this.textures.get('render').update();
+function spawnProjectile(x, y, angle) {
+  projectiles.push({ x, y, angle, speed: 1.5, life: 40 });
 }
 
-// ---- Movement ----
-function handleMovement(dt) {
-  const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
-  player.crouching = !!keys['KeyC'];
-  const speed = (player.crouching ? player.crouchSpeed : sprint ? player.sprintSpeed : player.speed) * dt;
-  let moving = false;
-  let dx = 0, dy = 0;
-
-  if (keys['KeyW']) { dx += Math.cos(player.angle) * speed; dy += Math.sin(player.angle) * speed; moving = true; }
-  if (keys['KeyS']) { dx -= Math.cos(player.angle) * speed; dy -= Math.sin(player.angle) * speed; moving = true; }
-  if (keys['KeyA']) { dx += Math.cos(player.angle - Math.PI/2) * speed; dy += Math.sin(player.angle - Math.PI/2) * speed; moving = true; }
-  if (keys['KeyD']) { dx += Math.cos(player.angle + Math.PI/2) * speed; dy += Math.sin(player.angle + Math.PI/2) * speed; moving = true; }
-
-  // Collision detection with sliding (walls)
-  const r = 0.2;
-  let newX = player.x, newY = player.y;
-  if (MAP[Math.floor(player.y)][Math.floor(player.x + dx + Math.sign(dx) * r)] === 0) newX += dx;
-  if (MAP[Math.floor(newY + dy + Math.sign(dy) * r)][Math.floor(newX)] === 0) newY += dy;
-
-  // Collision detection with NPCs (circle-vs-circle, slide around)
-  const colR = 0.4; // combined collision radius (player 0.2 + npc 0.2)
-  for (const npc of NPCS) {
-    if (!npc.alive) continue;
-    const ex = npc.x - newX, ey = npc.y - newY;
-    const dist = Math.sqrt(ex * ex + ey * ey);
-    if (dist < colR && dist > 0.001) {
-      const push = (colR - dist) / dist;
-      newX -= ex * push;
-      newY -= ey * push;
-    }
-  }
-
-  player.x = newX;
-  player.y = newY;
-
-  // Jump
-  if (keys['Space'] && player.onGround) {
-    player.jumpVel = 0.20;
-    player.onGround = false;
-    jumpAudio.currentTime = 0;
-    jumpAudio.volume = 0.5 * masterVolume;
-    jumpAudio.play().catch(() => {});
-  }
-  if (!player.onGround) {
-    player.jumpZ += player.jumpVel * dt;
-    player.jumpVel -= 0.010 * dt;
-    if (player.jumpZ <= 0) {
-      player.jumpZ = 0;
-      player.jumpVel = 0;
-      player.onGround = true;
-    }
-  }
-
-  // Track audible movement: walking or sprinting, NOT crouching, NOT airborne
-  player.moving = moving && !player.crouching && player.onGround;
-
-  // Crouch interpolation (smooth transition)
-  const crouchTarget = player.crouching ? 1 : 0;
-  player.crouchOffset += (crouchTarget - player.crouchOffset) * 0.2 * dt;
-
-  // Head bob
-  const bobSpeed = player.crouching ? 0.08 : (sprint ? 0.18 : 0.12);
-  if (moving) {
-    player.bobPhase += bobSpeed * dt;
-    player.bobAmount = Math.min(player.bobAmount + 0.1 * dt, 1);
-  } else {
-    player.bobAmount = Math.max(player.bobAmount - 0.08 * dt, 0);
-  }
-}
-
-// ---- Shooting ----
-function handleShooting(dt) {
-  if (player.shootTimer > 0) player.shootTimer -= dt;
-  if (player.muzzleFlash > 0) player.muzzleFlash -= dt;
-  if (player.weaponKick > 0) player.weaponKick -= dt * 0.3;
-  if (player.damageFlash > 0) player.damageFlash -= dt;
-
-  if (player.shooting && player.shootTimer <= 0 && player.ammo > 0) {
-    player.ammo--;
-    player.shootTimer = player.shootCooldown;
-    player.muzzleFlash = 4;
-    player.weaponKick = 6;
-
-    // Play shoot sound
-    shootAudio.currentTime = 0;
-    shootAudio.volume = 0.5 * masterVolume;
-    shootAudio.play().catch(() => {});
-
-    // Hitscan check against NPCs
-    const hitNpc = castHitscan();
-    if (hitNpc) {
-      hitNpc.health -= 25;
-      hitNpc.frame = 10; // hit flash
-      if (hitNpc.health <= 0) hitNpc.alive = false;
+function updateProjectiles(dt) {
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    p.x += Math.cos(p.angle) * p.speed * dt;
+    p.y += Math.sin(p.angle) * p.speed * dt;
+    p.life -= dt;
+    const mx = Math.floor(p.x), my = Math.floor(p.y);
+    if (mx < 0 || mx >= E.MAP_W || my < 0 || my >= E.MAP_H || E.MAP[my][mx] > 0 || p.life <= 0) {
+      projectiles.splice(i, 1);
     }
   }
 }
 
+// ---- SP Hitscan ----
 function castHitscan() {
-  let closestNpc = null;
+  let closest = null;
   let closestDist = Infinity;
-  const cx = RENDER_W / 2;
+  const spread = player.spread || 0;
+  const cx = E.RENDER_W / 2 + (Math.random() - 0.5) * spread * 3;
+  const cy = E.RENDER_H / 2 + (Math.random() - 0.5) * spread * 3;
+  const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
+  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
 
   for (const npc of NPCS) {
     if (!npc.alive) continue;
@@ -885,450 +470,117 @@ function castHitscan() {
     while (angle > Math.PI) angle -= 2*Math.PI;
     while (angle < -Math.PI) angle += 2*Math.PI;
 
-    if (Math.abs(angle) < FOV/2) {
-      const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
-      const spriteH = Math.min(RENDER_H, (RENDER_H / dist));
-      const halfW = spriteH * 0.4;
+    if (Math.abs(angle) < E.FOV/2) {
+      const screenX = (E.RENDER_W / 2) + (angle / E.HALF_FOV) * (E.RENDER_W / 2);
+      const baseH = Math.min(E.RENDER_H * 1.5, (E.RENDER_H / dist) * 0.8);
+      const halfW = baseH * 0.4;
       if (cx >= screenX - halfW && cx <= screenX + halfW && dist < closestDist) {
-        // Check line of sight — step along ray and look for walls
-        if (hasLineOfSight(player.x, player.y, npc.x, npc.y)) {
-          closestDist = dist;
-          closestNpc = npc;
+        const spriteH = baseH;
+        const spriteBottom = E.RENDER_H / 2 + baseH / 2 + bobOffset + player.pitch + wallOffset;
+        const spriteTop = spriteBottom - spriteH;
+        if (cy >= spriteTop && cy <= spriteBottom) {
+          if (E.hasLineOfSight(player.x, player.y, npc.x, npc.y)) {
+            closestDist = dist;
+            const headBoundary = spriteTop + spriteH * 0.25;
+            closest = { npc, headshot: cy < headBoundary };
+          }
         }
       }
     }
   }
-  return closestNpc;
+  return closest;
 }
 
-function hasLineOfSight(x0, y0, x1, y1) {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const steps = Math.ceil(dist * 4); // 4 checks per tile
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const mx = Math.floor(x0 + dx * t);
-    const my = Math.floor(y0 + dy * t);
-    if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return false;
-    if (MAP[my][mx] > 0) return false;
-  }
-  return true;
-}
+// ---- SP Shooting ----
+function handleShooting(dt) {
+  E.tickShootingVisuals(player, dt);
 
-// ---- Raycasting ----
-function castRays() {
-  const imgData = renderCtx.createImageData(RENDER_W, RENDER_H);
-  const data = imgData.data;
+  if (player.shooting && player.shootTimer <= 0 && player.ammo > 0) {
+    E.fireWeapon(player, shootAudio, masterVolume);
 
-  const crouchShift = -player.crouchOffset * 25;
-  const jumpShift = player.jumpZ * 55;
-  const wallOffset = jumpShift + crouchShift;
-  // Counter-pitch: tilt horizon slightly opposite to jump to compensate for wall shift
-  const horizonY = RENDER_H / 2 + player.pitch + crouchShift - jumpShift * 0.3;
-  for (let y = 0; y < RENDER_H; y++) {
-    let r, g, b;
-    if (y < horizonY) {
-      // Ceiling - dark techy
-      const t = Math.max(0, Math.min(1, 1 - y / Math.max(1, horizonY)));
-      r = Math.floor(5 + t * 8);
-      g = Math.floor(8 + t * 15);
-      b = Math.floor(15 + t * 25);
-    } else {
-      // Floor - dark with subtle glow
-      const t = Math.max(0, Math.min(1, (y - horizonY) / Math.max(1, RENDER_H - horizonY)));
-      r = Math.floor(8 + t * 12);
-      g = Math.floor(12 + t * 8);
-      b = Math.floor(10 + t * 5);
-    }
-    for (let x = 0; x < RENDER_W; x++) {
-      const idx = (y * RENDER_W + x) * 4;
-      data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
-    }
-  }
+    const spreadAngle = (Math.random() - 0.5) * (player.spread || 0) * 0.015;
+    spawnProjectile(
+      player.x + Math.cos(player.angle) * 0.5,
+      player.y + Math.sin(player.angle) * 0.5,
+      player.angle + spreadAngle
+    );
 
-  // Cast rays
-  for (let i = 0; i < NUM_RAYS; i++) {
-    const rayAngle = player.angle - HALF_FOV + (i / NUM_RAYS) * FOV;
-    const sin = Math.sin(rayAngle);
-    const cos = Math.cos(rayAngle);
-
-    let dist = 0;
-    let hitX, hitY, wallType = 0;
-    let side = 0;
-
-    // DDA raycasting
-    const mapX0 = Math.floor(player.x);
-    const mapY0 = Math.floor(player.y);
-    let mapX = mapX0, mapY = mapY0;
-
-    const deltaDistX = Math.abs(1 / (cos || 0.0001));
-    const deltaDistY = Math.abs(1 / (sin || 0.0001));
-
-    const stepX = cos >= 0 ? 1 : -1;
-    const stepY = sin >= 0 ? 1 : -1;
-
-    let sideDistX = cos >= 0 ? (mapX + 1 - player.x) * deltaDistX : (player.x - mapX) * deltaDistX;
-    let sideDistY = sin >= 0 ? (mapY + 1 - player.y) * deltaDistY : (player.y - mapY) * deltaDistY;
-
-    let hit = false;
-    for (let step = 0; step < 64; step++) {
-      if (sideDistX < sideDistY) {
-        sideDistX += deltaDistX;
-        mapX += stepX;
-        side = 0;
-      } else {
-        sideDistY += deltaDistY;
-        mapY += stepY;
-        side = 1;
-      }
-      if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
-      if (MAP[mapY][mapX] > 0) {
-        wallType = MAP[mapY][mapX];
-        hit = true;
-        break;
-      }
-    }
-
-    if (!hit) { depthBuffer[i] = MAX_DEPTH; continue; }
-
-    // Perpendicular distance (fish-eye correction)
-    if (side === 0) {
-      dist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
-    } else {
-      dist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
-    }
-    dist = Math.max(dist, 0.01);
-    depthBuffer[i] = dist;
-
-    // Wall height
-    const lineHeight = Math.floor(RENDER_H / dist);
-    const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-    const horizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
-    let drawStart = Math.floor(horizon - lineHeight / 2);
-    let drawEnd = Math.floor(horizon + lineHeight / 2);
-
-    // Texture coordinate
-    let wallX;
-    if (side === 0) wallX = player.y + dist * sin;
-    else wallX = player.x + dist * cos;
-    wallX -= Math.floor(wallX);
-    let texX = Math.floor(wallX * TEX_SIZE);
-    if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) texX = TEX_SIZE - texX - 1;
-
-    const tex = wallTextures[wallType];
-    if (!tex) { continue; }
-
-    // Draw wall column
-    const yStart = Math.max(0, drawStart);
-    const yEnd = Math.min(RENDER_H - 1, drawEnd);
-    const fogFactor = Math.min(1, dist / MAX_DEPTH);
-
-    for (let y = yStart; y <= yEnd; y++) {
-      const texY = Math.floor(((y - drawStart) / lineHeight) * TEX_SIZE) & (TEX_SIZE - 1);
-      const texIdx = (texY * TEX_SIZE + texX) * 4;
-      let r = tex.data[texIdx];
-      let g = tex.data[texIdx + 1];
-      let b = tex.data[texIdx + 2];
-
-      // Side shading
-      if (side === 1) { r = r * 0.7; g = g * 0.7; b = b * 0.7; }
-
-      // Distance fog
-      r = Math.floor(r * (1 - fogFactor * 0.85));
-      g = Math.floor(g * (1 - fogFactor * 0.85));
-      b = Math.floor(b * (1 - fogFactor * 0.85));
-
-      const idx = (y * RENDER_W + i) * 4;
-      data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
-    }
-  }
-
-  // Store for NPC rendering pass - don't put yet
-  frameImgData = imgData;
-}
-
-// ---- Render NPCs (billboard sprites) - pixel-level into frameImgData ----
-function renderNPCs() {
-  if (!frameImgData) return;
-  const data = frameImgData.data;
-
-  // Sort by distance (far to near)
-  const sorted = NPCS.filter(n => n.alive).map(npc => {
-    const dx = npc.x - player.x;
-    const dy = npc.y - player.y;
-    return { dist: Math.sqrt(dx*dx + dy*dy), dx, dy, ref: npc, type: npc.type };
-  }).sort((a, b) => b.dist - a.dist);
-
-  const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
-
-  for (const npc of sorted) {
-    let angle = Math.atan2(npc.dy, npc.dx) - player.angle;
-    while (angle > Math.PI) angle -= 2*Math.PI;
-    while (angle < -Math.PI) angle += 2*Math.PI;
-
-    if (Math.abs(angle) > HALF_FOV + 0.2) continue;
-    if (npc.dist < 0.3) continue;
-
-    const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
-    const spriteH = Math.min(RENDER_H * 1.5, (RENDER_H / npc.dist) * 0.8);
-    const spriteW = spriteH * 0.7;
-    const spriteTop = RENDER_H / 2 - spriteH / 2 + bobOffset + player.pitch + wallOffset;
-
-    const dir = getSpriteDir(npc.ref.angle, player.x, player.y, npc.ref.x, npc.ref.y);
-    const spriteInfo = npcSprites[npc.type][dir];
-    if (!spriteInfo) continue;
-    const spriteData = spriteInfo.data.data;
-
-    // Hit flash timer
-    if (npc.ref.frame > 0) npc.ref.frame--;
-
-    const startX = Math.floor(screenX - spriteW / 2);
-    const endX = Math.floor(screenX + spriteW / 2);
-    const startY = Math.max(0, Math.floor(spriteTop));
-    const endY = Math.min(RENDER_H - 1, Math.floor(spriteTop + spriteH));
-
-    // Fog based on distance
-    const fogFactor = Math.min(0.85, npc.dist / MAX_DEPTH);
-    const brightness = 1 - fogFactor;
-
-    // Hit flash intensity
-    const flashIntensity = npc.ref.frame > 0 ? npc.ref.frame / 10 : 0;
-
-    for (let sx = startX; sx < endX; sx++) {
-      if (sx < 0 || sx >= RENDER_W) continue;
-      if (npc.dist >= depthBuffer[sx]) continue; // behind wall
-
-      // Source texture X coordinate
-      const texX = Math.floor(((sx - startX) / (endX - startX)) * 64);
-      if (texX < 0 || texX >= 64) continue;
-
-      for (let sy = startY; sy <= endY; sy++) {
-        // Source texture Y coordinate
-        const texY = Math.floor(((sy - spriteTop) / spriteH) * 64);
-        if (texY < 0 || texY >= 64) continue;
-
-        const srcIdx = (texY * 64 + texX) * 4;
-        const sr = spriteData[srcIdx];
-        const sg = spriteData[srcIdx + 1];
-        const sb = spriteData[srcIdx + 2];
-        const sa = spriteData[srcIdx + 3];
-
-        if (sa < 10) continue; // skip transparent pixels
-
-        const dstIdx = (sy * RENDER_W + sx) * 4;
-        const alpha = sa / 255;
-
-        // Apply fog and optional hit flash
-        let r = sr * brightness;
-        let g = sg * brightness;
-        let b = sb * brightness;
-
-        if (flashIntensity > 0) {
-          r = r + (255 - r) * flashIntensity * 0.6;
-          g = g + (255 - g) * flashIntensity * 0.6;
-          b = b + (255 - b) * flashIntensity * 0.6;
-        }
-
-        // Alpha blend onto existing pixel
-        data[dstIdx]     = Math.floor(data[dstIdx]     * (1 - alpha) + r * alpha);
-        data[dstIdx + 1] = Math.floor(data[dstIdx + 1] * (1 - alpha) + g * alpha);
-        data[dstIdx + 2] = Math.floor(data[dstIdx + 2] * (1 - alpha) + b * alpha);
-      }
+    const hit = castHitscan();
+    if (hit) {
+      const damage = hit.headshot ? 50 : 25;
+      hit.npc.health -= damage;
+      hit.npc.frame = 10;
+      if (hit.npc.health <= 0) hit.npc.alive = false;
     }
   }
 }
 
-// ---- Weapon rendering ----
-function renderWeapon() {
-  const cx = RENDER_W / 2;
-  const bobX = Math.sin(player.bobPhase) * 4 * player.bobAmount;
-  const bobY = Math.abs(Math.cos(player.bobPhase)) * 3 * player.bobAmount;
-  const kickY = player.weaponKick * 3;
-  const baseX = cx + bobX;
-  const baseY = RENDER_H - 10 + bobY + kickY;
-
-  renderCtx.save();
-
-  // Gun body
-  renderCtx.fillStyle = '#1a1a2e';
-  renderCtx.fillRect(baseX - 12, baseY - 60, 24, 60);
-
-  // Barrel
-  renderCtx.fillStyle = '#16213e';
-  renderCtx.fillRect(baseX - 6, baseY - 90, 12, 35);
-
-  // Energy core
-  const pulse = Math.sin(Date.now() * 0.008) * 0.3 + 0.7;
-  renderCtx.fillStyle = `rgba(0, 255, 255, ${pulse})`;
-  renderCtx.fillRect(baseX - 4, baseY - 50, 8, 15);
-
-  // Side rails
-  renderCtx.fillStyle = '#0a0a1a';
-  renderCtx.fillRect(baseX - 16, baseY - 55, 4, 40);
-  renderCtx.fillRect(baseX + 12, baseY - 55, 4, 40);
-
-  // Accent lines
-  renderCtx.fillStyle = '#0ff';
-  renderCtx.globalAlpha = 0.7;
-  renderCtx.fillRect(baseX - 15, baseY - 52, 2, 10);
-  renderCtx.fillRect(baseX + 13, baseY - 52, 2, 10);
-  renderCtx.globalAlpha = 1;
-
-  // Muzzle flash
-  if (player.muzzleFlash > 0) {
-    const flashSize = player.muzzleFlash * 8;
-    renderCtx.globalAlpha = player.muzzleFlash / 4;
-    renderCtx.fillStyle = '#fff';
-    renderCtx.beginPath();
-    renderCtx.arc(baseX, baseY - 90, flashSize, 0, Math.PI * 2);
-    renderCtx.fill();
-    renderCtx.fillStyle = '#0ff';
-    renderCtx.beginPath();
-    renderCtx.arc(baseX, baseY - 90, flashSize * 1.5, 0, Math.PI * 2);
-    renderCtx.fill();
-    renderCtx.globalAlpha = 1;
-  }
-
-  renderCtx.restore();
-
-  // Crosshair
-  renderCtx.save();
-  renderCtx.strokeStyle = '#0ff';
-  renderCtx.lineWidth = 1;
-  renderCtx.globalAlpha = 0.8;
-  const chx = RENDER_W / 2, chy = RENDER_H / 2;
-  const gap = 4;
-  const len = 8;
-  renderCtx.beginPath();
-  renderCtx.moveTo(chx - gap - len, chy); renderCtx.lineTo(chx - gap, chy);
-  renderCtx.moveTo(chx + gap, chy); renderCtx.lineTo(chx + gap + len, chy);
-  renderCtx.moveTo(chx, chy - gap - len); renderCtx.lineTo(chx, chy - gap);
-  renderCtx.moveTo(chx, chy + gap); renderCtx.lineTo(chx, chy + gap + len);
-  renderCtx.stroke();
-  // Center dot
-  renderCtx.fillStyle = '#0ff';
-  renderCtx.fillRect(chx - 1, chy - 1, 2, 2);
-  renderCtx.restore();
-}
-
-// ---- HUD ----
-function renderHUD() {
-  const ctx = renderCtx;
-  ctx.save();
-
-  // Bottom bar background
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(0, RENDER_H - 30, RENDER_W, 30);
-  ctx.fillStyle = 'rgba(0,255,255,0.15)';
-  ctx.fillRect(0, RENDER_H - 30, RENDER_W, 1);
-
-  ctx.font = '8px monospace';
-
-  // Health
-  ctx.fillStyle = player.health > 30 ? '#0f0' : '#f00';
-  ctx.fillText('HP', 8, RENDER_H - 18);
-  ctx.fillStyle = '#111';
-  ctx.fillRect(24, RENDER_H - 24, 80, 10);
-  ctx.fillStyle = player.health > 30 ? '#0f0' : '#f00';
-  ctx.fillRect(24, RENDER_H - 24, player.health * 0.8, 10);
-  ctx.fillStyle = '#fff';
-  ctx.fillText(`${player.health}`, 28, RENDER_H - 16);
-
-  // Armor
-  ctx.fillStyle = '#08f';
-  ctx.fillText('AR', 8, RENDER_H - 6);
-  ctx.fillStyle = '#111';
-  ctx.fillRect(24, RENDER_H - 12, 80, 10);
-  ctx.fillStyle = '#08f';
-  ctx.fillRect(24, RENDER_H - 12, player.armor * 0.8, 10);
-  ctx.fillStyle = '#fff';
-  ctx.fillText(`${player.armor}`, 28, RENDER_H - 4);
-
-  // Ammo
-  ctx.fillStyle = '#ff0';
-  ctx.font = 'bold 14px monospace';
-  ctx.fillText(`${player.ammo}`, RENDER_W - 50, RENDER_H - 10);
-  ctx.font = '7px monospace';
-  ctx.fillStyle = '#888';
-  ctx.fillText('PLASMA', RENDER_W - 52, RENDER_H - 22);
-
-  // Kill counter
-  const kills = NPCS.filter(n => !n.alive).length;
-  ctx.fillStyle = '#f0a';
-  ctx.font = '8px monospace';
-  ctx.fillText(`KILLS: ${kills}/${NPCS.length}`, RENDER_W / 2 - 30, RENDER_H - 18);
-
-  // FPS counter
-  ctx.fillStyle = '#555';
-  ctx.font = '7px monospace';
-  ctx.fillText(`POS: ${player.x.toFixed(1)},${player.y.toFixed(1)}`, RENDER_W / 2 - 30, RENDER_H - 6);
-
-  // Damage flash
-  if (player.damageFlash > 0) {
-    ctx.fillStyle = `rgba(255,0,0,${player.damageFlash * 0.1})`;
-    ctx.fillRect(0, 0, RENDER_W, RENDER_H);
-  }
-
-  // Muzzle screen flash
-  if (player.muzzleFlash > 2) {
-    ctx.fillStyle = `rgba(0,255,255,${(player.muzzleFlash - 2) * 0.04})`;
-    ctx.fillRect(0, 0, RENDER_W, RENDER_H);
-  }
-
-  ctx.restore();
-}
-
-// ---- Minimap ----
-function renderMinimap() {
-  const ctx = renderCtx;
-  const size = 3;
-  const ox = 6, oy = 6;
-
-  ctx.save();
-  ctx.globalAlpha = 0.75;
-
-  // Map background
-  ctx.fillStyle = 'rgba(0,0,0,0.8)';
-  ctx.fillRect(ox - 2, oy - 2, MAP_W * size + 4, MAP_H * size + 4);
-  ctx.strokeStyle = '#0ff';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(ox - 2, oy - 2, MAP_W * size + 4, MAP_H * size + 4);
-
-  const wallColors = { 1: '#088', 2: '#800', 3: '#080', 4: '#860', 5: '#408', 6: '#068' };
-
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      if (MAP[y][x] > 0) {
-        ctx.fillStyle = wallColors[MAP[y][x]] || '#444';
-        ctx.fillRect(ox + x * size, oy + y * size, size, size);
-      }
-    }
-  }
-
-  // NPCs on map
+// ---- Build NPC render list ----
+function buildNPCEntities() {
+  const sorted = [];
   for (const npc of NPCS) {
     if (!npc.alive) continue;
-    const colors = { drone: '#0ff', sentinel: '#f80', heavy: '#f0f' };
-    ctx.fillStyle = colors[npc.type] || '#f00';
-    ctx.fillRect(ox + npc.x * size - 1, oy + npc.y * size - 1, 3, 3);
+    const dx = npc.x - player.x, dy = npc.y - player.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const dir = E.getSpriteDir(npc.angle, player.x, player.y, npc.x, npc.y);
+    const spriteInfo = npcSprites[npc.type][dir];
+    if (!spriteInfo) continue;
+    if (npc.frame > 0) npc.frame--;
+    sorted.push({
+      dist, dx, dy,
+      spriteData: spriteInfo.data.data,
+      hitFlash: npc.frame > 0 ? npc.frame / 10 : 0,
+      jumpZ: 0,
+      crouching: false,
+    });
+  }
+  sorted.sort((a, b) => b.dist - a.dist);
+  return sorted;
+}
+
+// ---- Update ----
+function update(time, delta) {
+  if (!gameStarted) return;
+
+  const dt = delta / 16.666;
+  if (!gamePaused) {
+    E.handleMovement(player, keys, dt, NPCS, masterVolume, jumpAudio);
+    handleShooting(dt);
+  }
+  updateProjectiles(dt);
+
+  // Footstep audio
+  if (!gamePaused && player.moving && player.onGround) {
+    localFootstepAudio.volume = 0.4 * masterVolume;
+    if (localFootstepAudio.paused) localFootstepAudio.play().catch(() => {});
+  } else {
+    localFootstepAudio.pause();
   }
 
-  // Player
-  ctx.fillStyle = '#0f0';
-  ctx.fillRect(ox + player.x * size - 1.5, oy + player.y * size - 1.5, 3, 3);
+  E.castRays(player);
+  E.renderSprites(player, buildNPCEntities());
+  E.renderProjectiles(player, projectiles);
+  E.commitFrame(this);
+  E.renderWeapon(player);
 
-  // Player direction
-  ctx.strokeStyle = '#0f0';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(ox + player.x * size, oy + player.y * size);
-  ctx.lineTo(ox + (player.x + Math.cos(player.angle) * 2) * size,
-             oy + (player.y + Math.sin(player.angle) * 2) * size);
-  ctx.stroke();
+  const kills = NPCS.filter(n => !n.alive).length;
+  E.renderHUD(player, {
+    armor: player.armor,
+    centerTop: `KILLS: ${kills}/${NPCS.length}`,
+    centerTopColor: '#f0a',
+    centerBottom: `POS: ${player.x.toFixed(1)},${player.y.toFixed(1)}`,
+    centerBottomColor: '#555',
+  });
 
-  ctx.restore();
+  if (showMap) {
+    const mapEnts = NPCS.filter(n => n.alive).map(n => {
+      const colors = { drone: '#0ff', sentinel: '#f80', heavy: '#f0f' };
+      return { x: n.x, y: n.y, color: colors[n.type] || '#f00' };
+    });
+    E.renderMinimap(player, mapEnts);
+  }
+
+  E.updatePhaserTexture(this);
 }
 </script>
 </body>

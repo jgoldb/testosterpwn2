@@ -178,6 +178,7 @@ function buildStats(game) {
     kills: p.kills,
     deaths: p.deaths,
     damageDealt: p.damageDealt,
+    headshots: p.headshots,
   }));
 }
 
@@ -311,7 +312,9 @@ io.on('connection', (socket) => {
       }
     });
 
-    // Position/state broadcasts (~15Hz from each client)
+    // Position/state broadcasts (~20Hz from each client)
+    // Uses volatile broadcast so stale position updates are dropped under backpressure
+    // rather than queued, keeping latency low at the cost of occasional missed frames.
     socket.on('game:state', (data) => {
       if (game.status !== 'playing' || !playerData.alive) return;
       if (typeof data.x !== 'number' || typeof data.y !== 'number' || typeof data.angle !== 'number') return;
@@ -328,7 +331,7 @@ io.on('connection', (socket) => {
       playerData.moving = !!data.moving;
       playerData.onGround = !!data.onGround;
 
-      socket.to(roomName).emit('game:playerState', {
+      socket.volatile.to(roomName).emit('game:playerState', {
         username: socket.username,
         x: clampedX,
         y: clampedY,
@@ -365,8 +368,9 @@ io.on('connection', (socket) => {
       if (dist > 30) return; // max render distance
       if (!hasLineOfSight(playerData.x, playerData.y, target.x, target.y)) return;
 
-      // Apply damage
-      const damage = 25;
+      // Apply damage (headshots deal double)
+      const headshot = !!data.headshot;
+      const damage = headshot ? 50 : 25;
       target.health = Math.max(0, target.health - damage);
       playerData.damageDealt += damage;
 
@@ -375,6 +379,7 @@ io.on('connection', (socket) => {
         shooter: socket.username,
         newHealth: target.health,
         damage,
+        headshot,
       });
 
       // Check for kill
@@ -382,10 +387,12 @@ io.on('connection', (socket) => {
         target.alive = false;
         target.deaths++;
         playerData.kills++;
+        if (headshot) playerData.headshots++;
 
         io.to(roomName).emit('game:playerKill', {
           victim: target.username,
           killer: socket.username,
+          headshot,
         });
 
         // Check win condition
@@ -398,6 +405,102 @@ io.on('connection', (socket) => {
           // Clean up game after a delay
           setTimeout(() => cleanupGame(game.id), 60000);
         }
+      }
+    });
+
+    // Rematch voting
+    socket.on('game:rematch', () => {
+      if (game.status !== 'finished') return;
+      if (!game.rematchVotes) game.rematchVotes = new Set();
+      game.rematchVotes.add(socket.username);
+
+      // Count how many players are still connected to this game room
+      const connectedPlayers = [];
+      for (const [uname, pd] of game.players) {
+        if (pd.socketId) {
+          const s = io.sockets.sockets.get(pd.socketId);
+          if (s && s.connected) connectedPlayers.push(uname);
+        }
+      }
+
+      const total = connectedPlayers.length;
+      const count = connectedPlayers.filter(u => game.rematchVotes.has(u)).length;
+
+      io.to(roomName).emit('game:rematchUpdate', { count, total });
+
+      // All connected players voted — start a new game
+      if (count >= total && total >= 2) {
+        // Create new game with same settings
+        const newGame = {
+          id: uuidv4().slice(0, 8),
+          host: game.host,
+          mode: game.mode,
+          maxPlayers: game.maxPlayers,
+          friendlyFire: game.friendlyFire,
+          status: 'starting',
+          createdAt: Date.now(),
+          started: false,
+          players: new Map(),
+        };
+
+        // Re-add connected players with same teams
+        for (const uname of connectedPlayers) {
+          const oldPlayer = game.players.get(uname);
+          newGame.players.set(uname, {
+            username: uname,
+            team: oldPlayer ? oldPlayer.team : 0,
+            ready: false,
+            alive: true,
+            health: 100,
+            x: 0, y: 0, angle: 0,
+            kills: 0, deaths: 0, damageDealt: 0, headshots: 0,
+            socketId: null,
+            spawn: null,
+            crouching: false,
+            jumpZ: 0,
+          });
+        }
+
+        // Assign spawns
+        getSpawns(newGame);
+        for (const p of newGame.players.values()) {
+          p.x = p.spawn.x;
+          p.y = p.spawn.y;
+          p.angle = p.spawn.angle;
+        }
+
+        games.set(newGame.id, newGame);
+        broadcastGamesList();
+
+        // Build spawn data
+        const spawnData = {};
+        for (const [uname, p] of newGame.players) {
+          spawnData[uname] = {
+            x: p.spawn.x,
+            y: p.spawn.y,
+            angle: p.spawn.angle,
+            team: p.team,
+          };
+        }
+
+        const startPayload = {
+          gameId: newGame.id,
+          spawnData,
+          mode: newGame.mode,
+          friendlyFire: newGame.friendlyFire,
+        };
+
+        io.to(roomName).emit('game:rematchStarting', startPayload);
+
+        // Timeout: abort if not all players ready within 15s
+        setTimeout(() => {
+          if (newGame.status === 'starting') {
+            newGame.status = 'finished';
+            const newRoomName = 'game:' + newGame.id;
+            io.to(newRoomName).emit('game:error', { message: 'Not all players loaded in time. Game aborted.' });
+            setTimeout(() => cleanupGame(newGame.id), 5000);
+          }
+        }, 15000);
       }
     });
 
@@ -424,6 +527,23 @@ io.on('connection', (socket) => {
         game.status = 'finished';
         io.to(roomName).emit('game:error', { message: `${socket.username} disconnected. Game aborted.` });
         setTimeout(() => cleanupGame(game.id), 5000);
+      }
+
+      // Update rematch vote count if game is finished
+      if (game.status === 'finished' && game.rematchVotes) {
+        game.rematchVotes.delete(socket.username);
+        const connectedPlayers = [];
+        for (const [uname, pd] of game.players) {
+          if (pd.socketId && uname !== socket.username) {
+            const s = io.sockets.sockets.get(pd.socketId);
+            if (s && s.connected) connectedPlayers.push(uname);
+          }
+        }
+        const total = connectedPlayers.length;
+        const count = connectedPlayers.filter(u => game.rematchVotes.has(u)).length;
+        if (total > 0) {
+          io.to(roomName).emit('game:rematchUpdate', { count, total });
+        }
       }
     });
 
@@ -499,7 +619,7 @@ io.on('connection', (socket) => {
       alive: true,
       health: 100,
       x: 0, y: 0, angle: 0,
-      kills: 0, deaths: 0, damageDealt: 0,
+      kills: 0, deaths: 0, damageDealt: 0, headshots: 0,
       socketId: null,
       spawn: null,
       crouching: false,
@@ -528,7 +648,7 @@ io.on('connection', (socket) => {
       alive: true,
       health: 100,
       x: 0, y: 0, angle: 0,
-      kills: 0, deaths: 0, damageDealt: 0,
+      kills: 0, deaths: 0, damageDealt: 0, headshots: 0,
       socketId: null,
       spawn: null,
       crouching: false,
