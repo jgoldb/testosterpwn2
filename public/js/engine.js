@@ -16,7 +16,7 @@ const MAX_DEPTH = 30;
 const BASE_ROT_SPEED = 0.004;
 
 // --- Map ---
-const MAP = [
+let MAP = [
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
@@ -42,8 +42,139 @@ const MAP = [
   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
 ];
-const MAP_H = MAP.length;
-const MAP_W = MAP[0].length;
+let MAP_H = MAP.length;
+let MAP_W = MAP[0].length;
+
+// --- Door tracking ---
+let doorPositions = new Set();
+let doorAnimStates = new Map();
+const DOOR_SPEED = 0.012;
+
+// --- Broken windows ---
+let brokenWindows = new Map(); // "x,y" -> { progress: 0-1 }
+const SHATTER_SPEED = 0.02;
+
+function setMap(newMap, w, h) {
+  MAP = newMap.map(row => [...row]);
+  MAP_W = w;
+  MAP_H = h;
+  doorPositions = new Set();
+  doorAnimStates = new Map();
+  brokenWindows = new Map();
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (newMap[y][x] === 10) doorPositions.add(x + ',' + y);
+    }
+  }
+}
+
+function isDoorPosition(x, y) {
+  return doorPositions.has(x + ',' + y);
+}
+
+// Check if a cell is passable, accounting for door gap during animation
+// faceFrac: fractional position along the wall face (0-1)
+// r: collision radius (0 for point checks, player radius for movement)
+function isCellPassable(cellX, cellY, faceFrac, r) {
+  if (cellX < 0 || cellX >= MAP_W || cellY < 0 || cellY >= MAP_H) return false;
+  const cell = MAP[cellY][cellX];
+  if (cell === 0) return true;
+  if (!isDoorPosition(cellX, cellY)) return false;
+  const anim = doorAnimStates.get(cellX + ',' + cellY);
+  const progress = anim ? anim.progress : 0;
+  if (progress < 0.02) return false;
+  return faceFrac + r < progress;
+}
+
+// Check if a projectile position falls in the open gap of a door
+function isDoorGap(cellX, cellY, posX, posY, angle) {
+  if (!isDoorPosition(cellX, cellY)) return false;
+  const cell = MAP[cellY][cellX];
+  if (cell === 0) return true;
+  if (cell !== 10) return false;
+  const anim = doorAnimStates.get(cellX + ',' + cellY);
+  const progress = anim ? anim.progress : 0;
+  if (progress < 0.02) return false;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  let faceFrac;
+  if (Math.abs(cos) > Math.abs(sin)) {
+    faceFrac = posY - cellY;
+  } else {
+    faceFrac = posX - cellX;
+  }
+  return faceFrac < progress;
+}
+
+function findNearbyDoor(px, py, angle) {
+  for (let dist = 0.5; dist <= 1.3; dist += 0.2) {
+    const cx = Math.floor(px + Math.cos(angle) * dist);
+    const cy = Math.floor(py + Math.sin(angle) * dist);
+    if (cx >= 0 && cx < MAP_W && cy >= 0 && cy < MAP_H && isDoorPosition(cx, cy)) {
+      const key = cx + ',' + cy;
+      const anim = doorAnimStates.get(key);
+      if (anim && Math.abs(anim.target - anim.progress) > 0.005) return null;
+      const isOpen = anim ? anim.target === 1 : MAP[cy][cx] === 0;
+      return { x: cx, y: cy, open: isOpen };
+    }
+  }
+  return null;
+}
+
+function setDoorState(x, y, open) {
+  if (!isDoorPosition(x, y)) return;
+  const key = x + ',' + y;
+  let state = doorAnimStates.get(key);
+  if (!state) {
+    state = { progress: open ? 0 : 1, target: open ? 1 : 0 };
+    doorAnimStates.set(key, state);
+  }
+  state.target = open ? 1 : 0;
+  if (!open) MAP[y][x] = 10;
+}
+
+function updateDoorAnimations(dt) {
+  for (const [key, state] of doorAnimStates) {
+    if (Math.abs(state.target - state.progress) < 0.005) {
+      state.progress = state.target;
+      if (state.target === 1) {
+        const [x, y] = key.split(',').map(Number);
+        MAP[y][x] = 0;
+      }
+      continue;
+    }
+    if (state.target > state.progress) {
+      state.progress = Math.min(1, state.progress + DOOR_SPEED * dt);
+    } else {
+      state.progress = Math.max(0, state.progress - DOOR_SPEED * dt);
+    }
+    if (state.target === 1 && state.progress > 0.85) {
+      const [x, y] = key.split(',').map(Number);
+      MAP[y][x] = 0;
+    }
+  }
+}
+
+function breakWindow(x, y) {
+  const key = x + ',' + y;
+  if (!brokenWindows.has(key)) {
+    brokenWindows.set(key, { progress: 0 });
+  }
+}
+
+function isWindowBroken(x, y) {
+  return brokenWindows.has(x + ',' + y);
+}
+
+function updateWindowAnimations(dt) {
+  for (const state of brokenWindows.values()) {
+    if (state.progress < 1) {
+      state.progress = Math.min(1, state.progress + SHATTER_SPEED * dt);
+    }
+  }
+}
+
+// --- Window overlay post-process (rendered after sprites) ---
+let pendingWindowOverlays = [];
 
 // --- Engine State (initialized by Engine.init) ---
 let renderCtx = null;
@@ -61,29 +192,175 @@ function generateTextures() {
     4: { base: [35, 25, 10], accent: [255, 160, 0] },
     5: { base: [30, 20, 40], accent: [180, 50, 255] },
     6: { base: [15, 25, 35], accent: [50, 150, 255] },
+    7: { base: [38, 36, 34], accent: [130, 125, 120] },
+    8: { base: [18, 22, 28], accent: [60, 100, 140] },
+    9: { base: [30, 30, 30], accent: [100, 100, 100] },
+    10: { base: [50, 35, 18], accent: [220, 160, 50] },
+    11: { base: [16, 20, 28], accent: [80, 180, 255] },
   };
   for (const [id, t] of Object.entries(types)) {
     const c = document.createElement('canvas');
     c.width = TEX_SIZE; c.height = TEX_SIZE;
     const ctx = c.getContext('2d');
+    const numId = parseInt(id);
+
+    // Base fill
     ctx.fillStyle = `rgb(${t.base[0]},${t.base[1]},${t.base[2]})`;
     ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
-    ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.15)`;
-    ctx.lineWidth = 1;
-    for (let i = 0; i < TEX_SIZE; i += 16) {
-      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, TEX_SIZE); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(TEX_SIZE, i); ctx.stroke();
+
+    if (numId <= 6) {
+      // Original rendering for standard wall types
+      ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.15)`;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < TEX_SIZE; i += 16) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, TEX_SIZE); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(TEX_SIZE, i); ctx.stroke();
+      }
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.6)`;
+      ctx.fillRect(0, 30, TEX_SIZE, 2);
+      ctx.fillRect(0, 50, TEX_SIZE, 1);
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.3)`;
+      ctx.fillRect(0, 29, TEX_SIZE, 1);
+      ctx.fillRect(0, 32, TEX_SIZE, 1);
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.4)`;
+      ctx.fillRect(4, 4, 8, 8); ctx.fillRect(52, 4, 8, 8);
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.8)`;
+      ctx.fillRect(6, 6, 4, 4); ctx.fillRect(54, 6, 4, 4);
+
+    } else if (numId === 7) {
+      // Concrete: weathered industrial concrete
+      // Horizontal mortar lines
+      ctx.fillStyle = 'rgba(60,55,50,0.4)';
+      ctx.fillRect(0, 15, TEX_SIZE, 2);
+      ctx.fillRect(0, 31, TEX_SIZE, 2);
+      ctx.fillRect(0, 47, TEX_SIZE, 2);
+      // Vertical mortar lines (offset per row like bricks)
+      ctx.fillRect(16, 0, 1, 15);
+      ctx.fillRect(48, 0, 1, 15);
+      ctx.fillRect(0, 17, 1, 14);
+      ctx.fillRect(32, 17, 1, 14);
+      ctx.fillRect(16, 33, 1, 14);
+      ctx.fillRect(48, 33, 1, 14);
+      ctx.fillRect(0, 49, 1, 15);
+      ctx.fillRect(32, 49, 1, 15);
+      // Cracks
+      ctx.strokeStyle = 'rgba(20,18,15,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(10, 8); ctx.lineTo(18, 12); ctx.lineTo(22, 10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(40, 36); ctx.lineTo(45, 42); ctx.lineTo(42, 48); ctx.stroke();
+      // Dark stain patches
+      ctx.fillStyle = 'rgba(20,18,15,0.15)';
+      ctx.fillRect(28, 4, 12, 8);
+      ctx.fillRect(5, 38, 10, 6);
+      // Accent highlight strip
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.2)`;
+      ctx.fillRect(0, 0, TEX_SIZE, 2);
+      ctx.fillRect(0, TEX_SIZE - 2, TEX_SIZE, 2);
+
+    } else if (numId === 8) {
+      // Dark Steel: military-grade plating
+      // Panel border
+      ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.25)`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(2, 2, TEX_SIZE - 4, TEX_SIZE - 4);
+      // Horizontal rivet lines
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.5)`;
+      for (let rx = 6; rx < TEX_SIZE; rx += 12) {
+        ctx.fillRect(rx, 4, 3, 3);
+        ctx.fillRect(rx, TEX_SIZE - 7, 3, 3);
+      }
+      // Center seam
+      ctx.fillStyle = 'rgba(8,12,18,0.6)';
+      ctx.fillRect(TEX_SIZE / 2 - 1, 0, 2, TEX_SIZE);
+      // Horizontal accent lines
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.3)`;
+      ctx.fillRect(4, 20, TEX_SIZE - 8, 1);
+      ctx.fillRect(4, 44, TEX_SIZE - 8, 1);
+      // Small indicator light
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.8)`;
+      ctx.fillRect(6, 28, 4, 4);
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillRect(7, 29, 2, 2);
+
+    } else if (numId === 9) {
+      // Grated Metal: dense grid
+      ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.3)`;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < TEX_SIZE; i += 8) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, TEX_SIZE); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(TEX_SIZE, i); ctx.stroke();
+      }
+      // Bolts at intersections
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.5)`;
+      for (let gy = 0; gy < TEX_SIZE; gy += 16) {
+        for (let gx = 0; gx < TEX_SIZE; gx += 16) {
+          ctx.fillRect(gx, gy, 2, 2);
+        }
+      }
+
+    } else if (numId === 10) {
+      // Door: heavy blast door
+      // Caution stripes at top and bottom
+      ctx.fillStyle = 'rgba(200,160,0,0.4)';
+      for (let s = 0; s < TEX_SIZE; s += 8) {
+        ctx.fillRect(s, 0, 4, 4);
+        ctx.fillRect(s + 4, TEX_SIZE - 4, 4, 4);
+      }
+      // Two recessed panels
+      ctx.fillStyle = 'rgba(30,20,8,0.5)';
+      ctx.fillRect(6, 8, TEX_SIZE - 12, 22);
+      ctx.fillRect(6, 34, TEX_SIZE - 12, 22);
+      // Panel borders
+      ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.4)`;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(6, 8, TEX_SIZE - 12, 22);
+      ctx.strokeRect(6, 34, TEX_SIZE - 12, 22);
+      // Inner panel highlights
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.15)`;
+      ctx.fillRect(8, 10, TEX_SIZE - 16, 1);
+      ctx.fillRect(8, 36, TEX_SIZE - 16, 1);
+      // Handle
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.9)`;
+      ctx.fillRect(TEX_SIZE - 14, 26, 5, 10);
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(TEX_SIZE - 13, 27, 3, 3);
+      // Hinges
+      ctx.fillStyle = 'rgba(80,60,30,0.8)';
+      ctx.fillRect(3, 10, 3, 6);
+      ctx.fillRect(3, 48, 3, 6);
+
+    } else if (numId === 11) {
+      // Window: reinforced wall with glass pane
+      // Solid wall top and bottom
+      ctx.fillStyle = 'rgba(12,16,22,0.6)';
+      ctx.fillRect(0, 0, TEX_SIZE, 16);
+      ctx.fillRect(0, 48, TEX_SIZE, 16);
+      // Window glass (bright glowing area)
+      ctx.fillStyle = 'rgba(30, 50, 70, 0.8)';
+      ctx.fillRect(6, 18, TEX_SIZE - 12, 28);
+      ctx.fillStyle = 'rgba(60, 140, 200, 0.35)';
+      ctx.fillRect(8, 20, TEX_SIZE - 16, 24);
+      // Glass highlights
+      ctx.fillStyle = 'rgba(120, 200, 255, 0.15)';
+      ctx.fillRect(10, 22, 12, 8);
+      ctx.fillRect(42, 34, 10, 6);
+      // Frame
+      ctx.strokeStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.6)`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(6, 18, TEX_SIZE - 12, 28);
+      // Cross bars
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.35)`;
+      ctx.fillRect(TEX_SIZE / 2 - 1, 18, 2, 28);
+      ctx.fillRect(6, 31, TEX_SIZE - 12, 2);
+      // Accent dots on wall portion
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.3)`;
+      ctx.fillRect(4, 4, 4, 4);
+      ctx.fillRect(TEX_SIZE - 8, 4, 4, 4);
+      ctx.fillRect(4, 54, 4, 4);
+      ctx.fillRect(TEX_SIZE - 8, 54, 4, 4);
     }
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.6)`;
-    ctx.fillRect(0, 30, TEX_SIZE, 2);
-    ctx.fillRect(0, 50, TEX_SIZE, 1);
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.3)`;
-    ctx.fillRect(0, 29, TEX_SIZE, 1);
-    ctx.fillRect(0, 32, TEX_SIZE, 1);
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.4)`;
-    ctx.fillRect(4, 4, 8, 8); ctx.fillRect(52, 4, 8, 8);
-    ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.8)`;
-    ctx.fillRect(6, 6, 4, 4); ctx.fillRect(54, 6, 4, 4);
+
+    // Noise for all types
     const imgData = ctx.getImageData(0, 0, TEX_SIZE, TEX_SIZE);
     for (let p = 0; p < imgData.data.length; p += 4) {
       const n = (Math.random() - 0.5) * 12;
@@ -223,18 +500,28 @@ function hasLineOfSight(x0, y0, x1, y1) {
   const dx = x1 - x0, dy = y1 - y0;
   const dist = Math.sqrt(dx * dx + dy * dy);
   const steps = Math.ceil(dist * 4);
+  const adx = Math.abs(dx), ady = Math.abs(dy);
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    const mx = Math.floor(x0 + dx * t);
-    const my = Math.floor(y0 + dy * t);
+    const sx = x0 + dx * t, sy = y0 + dy * t;
+    const mx = Math.floor(sx), my = Math.floor(sy);
     if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return false;
-    if (MAP[my][mx] > 0) return false;
+    const cell = MAP[my][mx];
+    if (cell === 0 || cell === 11) continue;
+    if (isDoorPosition(mx, my)) {
+      const anim = doorAnimStates.get(mx + ',' + my);
+      const progress = anim ? anim.progress : 0;
+      const faceFrac = adx > ady ? (sy - my) : (sx - mx);
+      if (faceFrac < progress) continue;
+    }
+    return false;
   }
   return true;
 }
 
 // --- Raycasting ---
 function castRays(player) {
+  pendingWindowOverlays = [];
   const imgData = renderCtx.createImageData(RENDER_W, RENDER_H);
   const data = imgData.data;
   const crouchShift = -player.crouchOffset * 25;
@@ -268,53 +555,172 @@ function castRays(player) {
     let sideDistX = cos >= 0 ? (mapX + 1 - player.x) * deltaDistX : (player.x - mapX) * deltaDistX;
     let sideDistY = sin >= 0 ? (mapY + 1 - player.y) * deltaDistY : (player.y - mapY) * deltaDistY;
     let hit = false;
+    let doorSlide = 0;
+    let winHit = null;
+
     for (let step = 0; step < 64; step++) {
       if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
       else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
       if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
-      if (MAP[mapY][mapX] > 0) { wallType = MAP[mapY][mapX]; hit = true; break; }
+
+      const cell = MAP[mapY][mapX];
+      if (cell <= 0) continue;
+
+      if (cell === 11) {
+        if (!winHit) winHit = { side, mapX, mapY };
+        continue;
+      }
+
+      if (cell === 10) {
+        const anim = doorAnimStates.get(mapX + ',' + mapY);
+        const progress = anim ? anim.progress : 0;
+        if (progress > 0.99) continue;
+        if (progress > 0.01) {
+          let dDist;
+          if (side === 0) dDist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
+          else dDist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
+          dDist = Math.max(dDist, 0.01);
+          let dWallX;
+          if (side === 0) dWallX = player.y + dDist * sin;
+          else dWallX = player.x + dDist * cos;
+          dWallX -= Math.floor(dWallX);
+          if (dWallX < progress) continue;
+          doorSlide = progress;
+        }
+        wallType = 10; hit = true; break;
+      }
+
+      wallType = cell; hit = true; break;
     }
-    if (!hit) { depthBuffer[i] = MAX_DEPTH; continue; }
 
-    let dist;
-    if (side === 0) dist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
-    else dist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
-    dist = Math.max(dist, 0.01);
-    depthBuffer[i] = dist;
+    if (!hit && !winHit) { depthBuffer[i] = MAX_DEPTH; continue; }
 
-    const lineHeight = Math.floor(RENDER_H / dist);
     const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
     const horizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
-    const drawStart = Math.floor(horizon - lineHeight / 2);
-    const drawEnd = Math.floor(horizon + lineHeight / 2);
 
-    let wallX;
-    if (side === 0) wallX = player.y + dist * sin;
-    else wallX = player.x + dist * cos;
-    wallX -= Math.floor(wallX);
-    let texX = Math.floor(wallX * TEX_SIZE);
-    if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) texX = TEX_SIZE - texX - 1;
+    if (hit) {
+      let dist;
+      if (side === 0) dist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
+      else dist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
+      dist = Math.max(dist, 0.01);
+      depthBuffer[i] = dist;
 
-    const tex = wallTextures[wallType];
-    if (!tex) continue;
+      const lineHeight = Math.floor(RENDER_H / dist);
+      const drawStart = Math.floor(horizon - lineHeight / 2);
 
-    const yStart = Math.max(0, drawStart);
-    const yEnd = Math.min(RENDER_H - 1, drawEnd);
-    const fogFactor = Math.min(1, dist / MAX_DEPTH);
+      let wallX;
+      if (side === 0) wallX = player.y + dist * sin;
+      else wallX = player.x + dist * cos;
+      wallX -= Math.floor(wallX);
+      let texX;
+      if (wallType === 10 && doorSlide > 0) {
+        texX = Math.floor((wallX - doorSlide) * TEX_SIZE);
+      } else {
+        texX = Math.floor(wallX * TEX_SIZE);
+      }
+      if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) texX = TEX_SIZE - texX - 1;
+      texX = Math.max(0, Math.min(TEX_SIZE - 1, texX));
 
-    for (let y = yStart; y <= yEnd; y++) {
-      const texY = Math.floor(((y - drawStart) / lineHeight) * TEX_SIZE) & (TEX_SIZE - 1);
-      const texIdx = (texY * TEX_SIZE + texX) * 4;
-      let r = tex.data[texIdx], g = tex.data[texIdx + 1], b = tex.data[texIdx + 2];
-      if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
-      r = Math.floor(r * (1 - fogFactor * 0.85));
-      g = Math.floor(g * (1 - fogFactor * 0.85));
-      b = Math.floor(b * (1 - fogFactor * 0.85));
-      const idx = (y * RENDER_W + i) * 4;
-      data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+      const tex = wallTextures[wallType];
+      if (tex) {
+        const yStart = Math.max(0, drawStart);
+        const yEnd = Math.min(RENDER_H - 1, Math.floor(horizon + lineHeight / 2));
+        const fogFactor = Math.min(1, dist / MAX_DEPTH);
+        for (let y = yStart; y <= yEnd; y++) {
+          const texY = Math.floor(((y - drawStart) / lineHeight) * TEX_SIZE) & (TEX_SIZE - 1);
+          const texIdx = (texY * TEX_SIZE + texX) * 4;
+          let r = tex.data[texIdx], g = tex.data[texIdx + 1], b = tex.data[texIdx + 2];
+          if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
+          r = Math.floor(r * (1 - fogFactor * 0.85));
+          g = Math.floor(g * (1 - fogFactor * 0.85));
+          b = Math.floor(b * (1 - fogFactor * 0.85));
+          const idx = (y * RENDER_W + i) * 4;
+          data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+        }
+      }
+    }
+
+    if (winHit) {
+      const wS = winHit.side;
+      let wDist;
+      if (wS === 0) wDist = (winHit.mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
+      else wDist = (winHit.mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
+      wDist = Math.max(wDist, 0.01);
+      if (!hit) depthBuffer[i] = MAX_DEPTH;
+
+      let wWallX;
+      if (wS === 0) wWallX = player.y + wDist * sin;
+      else wWallX = player.x + wDist * cos;
+      wWallX -= Math.floor(wWallX);
+      let wTexX = Math.floor(wWallX * TEX_SIZE);
+      if ((wS === 0 && cos < 0) || (wS === 1 && sin > 0)) wTexX = TEX_SIZE - wTexX - 1;
+      wTexX = Math.max(0, Math.min(TEX_SIZE - 1, wTexX));
+
+      const wLineHeight = Math.floor(RENDER_H / wDist);
+      const wDrawStart = Math.floor(horizon - wLineHeight / 2);
+      const wFog = Math.min(1, wDist / MAX_DEPTH);
+
+      pendingWindowOverlays.push({
+        column: i, wS, wTexX, wLineHeight, wDrawStart, wFog,
+        mapX: winHit.mapX, mapY: winHit.mapY,
+      });
     }
   }
   frameImgData = imgData;
+}
+
+// --- Window Overlay Post-Process ---
+// Rendered AFTER sprites so players are visible through glass
+function applyWindowOverlays() {
+  if (!frameImgData || pendingWindowOverlays.length === 0) return;
+  const data = frameImgData.data;
+  const wTex = wallTextures[11];
+  if (!wTex) return;
+
+  for (const ov of pendingWindowOverlays) {
+    const { column, wS, wTexX, wLineHeight, wDrawStart, wFog, mapX, mapY } = ov;
+    const broken = brokenWindows.get(mapX + ',' + mapY);
+    const yStart = Math.max(0, wDrawStart);
+    const yEnd = Math.min(RENDER_H - 1, wDrawStart + wLineHeight);
+
+    for (let y = yStart; y <= yEnd; y++) {
+      const texY = Math.floor(((y - wDrawStart) / wLineHeight) * TEX_SIZE) & (TEX_SIZE - 1);
+      const isGlass = texY >= 18 && texY <= 45 && wTexX >= 6 && wTexX <= 51;
+      const texIdx = (texY * TEX_SIZE + wTexX) * 4;
+      let wr = wTex.data[texIdx], wg = wTex.data[texIdx+1], wb = wTex.data[texIdx+2];
+      if (wS === 1) { wr *= 0.7; wg *= 0.7; wb *= 0.7; }
+      wr = Math.floor(wr * (1 - wFog * 0.85));
+      wg = Math.floor(wg * (1 - wFog * 0.85));
+      wb = Math.floor(wb * (1 - wFog * 0.85));
+      const idx = (y * RENDER_W + column) * 4;
+      if (isGlass) {
+        if (broken) {
+          if (broken.progress >= 1) continue;
+          const shardX = wTexX >> 3;
+          const shardY = (texY - 18) >> 3;
+          const shardHash = ((shardX * 17 + shardY * 31 + 47) * 127) & 0xFF;
+          const threshold = shardHash / 255;
+          if (broken.progress > threshold) continue;
+          const flash = Math.max(0, 1 - broken.progress * 6);
+          const alpha = 0.3 + flash * 0.5;
+          const fr = Math.min(255, wr + flash * 180);
+          const fg = Math.min(255, wg + flash * 200);
+          const fb = Math.min(255, wb + flash * 220);
+          data[idx]   = Math.floor(data[idx]   * (1 - alpha) + fr * alpha);
+          data[idx+1] = Math.floor(data[idx+1] * (1 - alpha) + fg * alpha);
+          data[idx+2] = Math.floor(data[idx+2] * (1 - alpha) + fb * alpha);
+        } else {
+          const alpha = 0.25;
+          data[idx]   = Math.floor(data[idx]   * (1 - alpha) + wr * alpha);
+          data[idx+1] = Math.floor(data[idx+1] * (1 - alpha) + wg * alpha);
+          data[idx+2] = Math.floor(data[idx+2] * (1 - alpha) + wb * alpha);
+        }
+      } else {
+        data[idx] = wr; data[idx+1] = wg; data[idx+2] = wb;
+      }
+    }
+  }
+  pendingWindowOverlays = [];
 }
 
 // --- Sprite Rendering (billboard) ---
@@ -582,6 +988,18 @@ function renderHUD(player, extras) {
     ctx.fillText(extras.centerBottom, RENDER_W / 2 - 30, RENDER_H - 6);
   }
 
+  // Door interaction hint
+  if (doorPositions.size > 0) {
+    const nearDoor = findNearbyDoor(player.x, player.y, player.angle);
+    if (nearDoor) {
+      ctx.fillStyle = '#ff0';
+      ctx.font = '8px monospace';
+      const hintText = nearDoor.open ? 'E: CLOSE DOOR' : 'E: OPEN DOOR';
+      const tw = ctx.measureText(hintText).width;
+      ctx.fillText(hintText, RENDER_W / 2 - tw / 2, RENDER_H / 2 + 40);
+    }
+  }
+
   // Damage flash
   if (player.damageFlash > 0) {
     ctx.fillStyle = `rgba(255,0,0,${player.damageFlash * 0.1})`;
@@ -657,11 +1075,15 @@ function handleMovement(player, keys, dt, entities, masterVolume, jumpAudio) {
   if (keys['KeyA']) { dx += Math.cos(player.angle - Math.PI/2) * speed; dy += Math.sin(player.angle - Math.PI/2) * speed; moving = true; }
   if (keys['KeyD']) { dx += Math.cos(player.angle + Math.PI/2) * speed; dy += Math.sin(player.angle + Math.PI/2) * speed; moving = true; }
 
-  // Wall collision with sliding
+  // Wall collision with sliding (gap-aware for doors)
   const r = 0.2;
   let newX = player.x, newY = player.y;
-  if (MAP[Math.floor(player.y)][Math.floor(player.x + dx + Math.sign(dx) * r)] === 0) newX += dx;
-  if (MAP[Math.floor(newY + dy + Math.sign(dy) * r)][Math.floor(newX)] === 0) newY += dy;
+  const xCell = Math.floor(player.x + dx + Math.sign(dx) * r);
+  const yRow = Math.floor(player.y);
+  if (isCellPassable(xCell, yRow, player.y - yRow, r)) newX += dx;
+  const xCol = Math.floor(newX);
+  const yCell = Math.floor(newY + dy + Math.sign(dy) * r);
+  if (isCellPassable(xCol, yCell, newX - xCol, r)) newY += dy;
 
   // Entity collision (circle-vs-circle, slide around)
   const colR = 0.4;
@@ -890,7 +1312,10 @@ window.Engine = {
   // Constants
   SCREEN_W, SCREEN_H, RENDER_W, RENDER_H, TEX_SIZE,
   FOV, HALF_FOV, NUM_RAYS, MAX_DEPTH, BASE_ROT_SPEED,
-  MAP, MAP_W, MAP_H,
+  // MAP/MAP_W/MAP_H use getters so they reflect setMap() changes
+  get MAP() { return MAP; },
+  get MAP_W() { return MAP_W; },
+  get MAP_H() { return MAP_H; },
 
   // State accessors
   getRenderCtx: () => renderCtx,
@@ -905,6 +1330,7 @@ window.Engine = {
 
   // Rendering
   castRays,
+  applyWindowOverlays,
   renderSprites,
   renderProjectiles,
   renderWeapon,
@@ -923,6 +1349,18 @@ window.Engine = {
   initPhaser,
   initRenderCanvas,
   setupInput,
+
+  // Map management
+  setMap,
+  findNearbyDoor,
+  isDoorPosition,
+  isCellPassable,
+  isDoorGap,
+  setDoorState,
+  updateDoorAnimations,
+  breakWindow,
+  isWindowBroken,
+  updateWindowAnimations,
 
   // Interpolation (MP)
   smoothLerp,

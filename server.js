@@ -31,41 +31,95 @@ const sessions = new Map(); // token -> { username }
 const lobbyUsers = new Map(); // username -> Set<socketId>
 const games = new Map(); // gameId -> GameRoom
 
-// --- Map & Spawn Data ---
-const MAP = [
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,2,2,2,0,0,0,3,3,3,3,3,0,0,0,4,4,4,0,0,0,1],
-  [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,1],
-  [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,0,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
-  [1,0,0,2,2,0,0,0,0,4,4,0,0,4,4,0,0,0,0,2,2,0,0,1],
-  [1,0,0,0,2,0,0,0,0,4,0,0,0,0,4,0,0,0,2,0,0,0,0,1],
-  [1,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-];
-const MAP_W = 24, MAP_H = 24;
+// --- Maps ---
+const MAPS = {
+  'test-arena': {
+    name: 'Test Arena',
+    width: 24,
+    height: 24,
+    grid: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,2,2,2,0,0,0,3,3,3,3,3,0,0,0,4,4,4,0,0,0,1],
+      [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
+      [1,0,0,2,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,4,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,1],
+      [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
+      [1,0,0,6,0,0,0,0,0,0,6,0,6,0,0,0,0,0,0,6,0,0,0,1],
+      [1,0,0,6,0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,6,0,0,0,1],
+      [1,0,0,6,0,0,0,0,0,0,6,6,6,0,0,0,0,0,0,6,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
+      [1,0,0,2,2,0,0,0,0,4,4,0,0,4,4,0,0,0,0,2,2,0,0,1],
+      [1,0,0,0,2,0,0,0,0,4,0,0,0,0,4,0,0,0,2,0,0,0,0,1],
+      [1,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    spawns: [
+      { x: 1.5, y: 1.5, angle: Math.PI / 4 },
+      { x: 22.5, y: 1.5, angle: (3 * Math.PI) / 4 },
+      { x: 1.5, y: 22.5, angle: -Math.PI / 4 },
+      { x: 22.5, y: 22.5, angle: (-3 * Math.PI) / 4 },
+    ],
+  },
 
-const SPAWN_POINTS = [
-  { x: 1.5, y: 1.5, angle: Math.PI / 4 },         // top-left
-  { x: 22.5, y: 1.5, angle: (3 * Math.PI) / 4 },  // top-right
-  { x: 1.5, y: 22.5, angle: -Math.PI / 4 },        // bottom-left
-  { x: 22.5, y: 22.5, angle: (-3 * Math.PI) / 4 }, // bottom-right
-];
+  'the-cage': {
+    name: 'The Cage',
+    width: 32,
+    height: 32,
+    grid: [
+      //                                        Corner bunkers (7=concrete), Central fortress (8=steel, 4=amber),
+      //                                        Side wings (6=blue), Cover (5=purple, 3=green),
+      //                                        Doors (10), Windows (11), Core (2=red)
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,0,1],
+      [1,0,7,0,0,7,0,0,0,0,0,0,0,0,5,0,0,5,0,0,0,0,0,0,0,0,7,0,0,7,0,1],
+      [1,0,7,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,7,0,1],
+      [1,0,7,11,10,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,10,11,7,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,1],
+      [1,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,8,8,11,8,8,10,10,8,8,11,8,8,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,1],
+      [1,0,5,0,0,0,0,0,0,0,8,0,0,4,4,10,10,4,4,0,0,8,0,0,0,0,0,0,0,5,0,1],
+      [1,0,0,0,0,0,0,0,0,0,8,0,0,4,0,0,0,0,4,0,0,8,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,6,6,10,6,0,10,0,0,10,0,0,0,0,10,0,0,10,0,6,10,6,6,0,0,0,0,1],
+      [1,0,0,0,0,6,0,0,6,0,8,0,0,4,0,2,2,0,4,0,0,8,0,6,0,0,6,0,0,0,0,1],
+      [1,0,0,0,0,6,0,0,6,0,8,0,0,4,0,2,2,0,4,0,0,8,0,6,0,0,6,0,0,0,0,1],
+      [1,0,0,0,0,6,6,10,6,0,10,0,0,10,0,0,0,0,10,0,0,10,0,6,10,6,6,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,8,0,0,4,0,0,0,0,4,0,0,8,0,0,0,0,0,0,0,0,0,1],
+      [1,0,5,0,0,0,0,0,0,0,8,0,0,4,4,10,10,4,4,0,0,8,0,0,0,0,0,0,0,5,0,1],
+      [1,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,8,8,11,8,8,10,10,8,8,11,8,8,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,1],
+      [1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,7,11,10,7,0,0,0,0,0,0,0,0,5,0,0,5,0,0,0,0,0,0,0,0,7,10,11,7,0,1],
+      [1,0,7,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,7,0,1],
+      [1,0,7,0,0,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,7,0,1],
+      [1,0,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    spawns: [
+      { x: 3.5, y: 3.5, angle: Math.PI / 4 },
+      { x: 28.5, y: 3.5, angle: (3 * Math.PI) / 4 },
+      { x: 3.5, y: 28.5, angle: -Math.PI / 4 },
+      { x: 28.5, y: 28.5, angle: (-3 * Math.PI) / 4 },
+    ],
+  },
+};
 
 // --- Helpers ---
 app.use(express.json());
@@ -103,6 +157,8 @@ function serializeGame(g) {
     maxPlayers: g.maxPlayers,
     friendlyFire: g.friendlyFire,
     status: g.status,
+    mapId: g.mapId,
+    mapName: g.mapName,
     players: Array.from(g.players.values()).map((p) => ({
       username: p.username,
       team: p.team,
@@ -136,19 +192,18 @@ function assignTeam(game) {
 
 function getSpawns(game) {
   const players = Array.from(game.players.values());
+  const mapDef = MAPS[game.mapId] || MAPS['test-arena'];
+  const spawnPoints = mapDef.spawns;
   if (game.mode === '1v1') {
-    // Diagonal opposites
-    players[0].spawn = SPAWN_POINTS[0];
-    players[1].spawn = SPAWN_POINTS[3];
+    players[0].spawn = spawnPoints[0];
+    players[1].spawn = spawnPoints[3];
   } else if (game.mode === '2v2') {
-    // Team 0: top spawns, Team 1: bottom spawns
     const t0 = players.filter((p) => p.team === 0);
     const t1 = players.filter((p) => p.team === 1);
-    t0.forEach((p, i) => (p.spawn = SPAWN_POINTS[i]));
-    t1.forEach((p, i) => (p.spawn = SPAWN_POINTS[2 + i]));
+    t0.forEach((p, i) => (p.spawn = spawnPoints[i]));
+    t1.forEach((p, i) => (p.spawn = spawnPoints[2 + i]));
   } else {
-    // FFA: distribute all 4 spawn points
-    players.forEach((p, i) => (p.spawn = SPAWN_POINTS[i]));
+    players.forEach((p, i) => (p.spawn = spawnPoints[i]));
   }
 }
 
@@ -197,7 +252,7 @@ function findGameForPlayer(username) {
   return null;
 }
 
-function hasLineOfSight(x0, y0, x1, y1) {
+function hasLineOfSight(mapGrid, mapW, mapH, x0, y0, x1, y1) {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -206,8 +261,9 @@ function hasLineOfSight(x0, y0, x1, y1) {
     const t = i / steps;
     const mx = Math.floor(x0 + dx * t);
     const my = Math.floor(y0 + dy * t);
-    if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return false;
-    if (MAP[my][mx] > 0) return false;
+    if (mx < 0 || mx >= mapW || my < 0 || my >= mapH) return false;
+    const tile = mapGrid[my][mx];
+    if (tile > 0 && tile !== 11) return false; // windows don't block LOS
   }
   return true;
 }
@@ -320,8 +376,8 @@ io.on('connection', (socket) => {
       if (typeof data.x !== 'number' || typeof data.y !== 'number' || typeof data.angle !== 'number') return;
 
       // Basic bounds validation
-      const clampedX = Math.max(0.5, Math.min(MAP_W - 0.5, data.x));
-      const clampedY = Math.max(0.5, Math.min(MAP_H - 0.5, data.y));
+      const clampedX = Math.max(0.5, Math.min(game.mapW - 0.5, data.x));
+      const clampedY = Math.max(0.5, Math.min(game.mapH - 0.5, data.y));
 
       playerData.x = clampedX;
       playerData.y = clampedY;
@@ -350,6 +406,44 @@ io.on('connection', (socket) => {
       socket.to(roomName).emit('game:playerFire', { username: socket.username });
     });
 
+    // Door interaction (E key)
+    socket.on('game:interact', (data) => {
+      if (game.status !== 'playing' || !game.started || !playerData.alive) return;
+      const now = Date.now();
+
+      // Find nearby door in the direction the player is facing
+      const angle = playerData.angle;
+      for (let dist = 0.5; dist <= 1.3; dist += 0.2) {
+        const cx = Math.floor(playerData.x + Math.cos(angle) * dist);
+        const cy = Math.floor(playerData.y + Math.sin(angle) * dist);
+        if (cx >= 0 && cx < game.mapW && cy >= 0 && cy < game.mapH) {
+          const key = cx + ',' + cy;
+          if (game.doorPositions.has(key)) {
+            // Per-door cooldown: reject if animation still in progress
+            if (!game.doorLastToggle) game.doorLastToggle = new Map();
+            const lastToggle = game.doorLastToggle.get(key) || 0;
+            if (now - lastToggle < 1400) break;
+            game.doorLastToggle.set(key, now);
+            const isOpen = game.mapGrid[cy][cx] === 0;
+            game.mapGrid[cy][cx] = isOpen ? 10 : 0;
+            io.to(roomName).emit('game:doorToggle', { x: cx, y: cy, open: !isOpen });
+            break;
+          }
+        }
+      }
+    });
+
+    // Window break - projectile hit a window
+    socket.on('game:shootWindow', (data) => {
+      if (game.status !== 'playing' || !game.started || !playerData.alive) return;
+      if (!data || typeof data.x !== 'number' || typeof data.y !== 'number') return;
+      const wx = Math.floor(data.x), wy = Math.floor(data.y);
+      if (wx < 0 || wx >= game.mapW || wy < 0 || wy >= game.mapH) return;
+      if (game.mapGrid[wy][wx] !== 11) return;
+      game.mapGrid[wy][wx] = 0;
+      io.to(roomName).emit('game:windowBreak', { x: wx, y: wy });
+    });
+
     // Shooting - client reports a hit
     socket.on('game:shoot', (data) => {
       if (game.status !== 'playing' || !game.started || !playerData.alive) return;
@@ -366,7 +460,7 @@ io.on('connection', (socket) => {
       const dy = target.y - playerData.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > 30) return; // max render distance
-      if (!hasLineOfSight(playerData.x, playerData.y, target.x, target.y)) return;
+      if (!hasLineOfSight(game.mapGrid, game.mapW, game.mapH, playerData.x, playerData.y, target.x, target.y)) return;
 
       // Apply damage (headshots deal double)
       const headshot = !!data.headshot;
@@ -431,12 +525,27 @@ io.on('connection', (socket) => {
       // All connected players voted — start a new game
       if (count >= total && total >= 2) {
         // Create new game with same settings
+        const rematchMapDef = MAPS[game.mapId] || MAPS['test-arena'];
+        const rematchMapGrid = rematchMapDef.grid.map(row => [...row]);
+        const rematchDoorPositions = new Set();
+        for (let y = 0; y < rematchMapDef.height; y++) {
+          for (let x = 0; x < rematchMapDef.width; x++) {
+            if (rematchMapDef.grid[y][x] === 10) rematchDoorPositions.add(x + ',' + y);
+          }
+        }
+
         const newGame = {
           id: uuidv4().slice(0, 8),
           host: game.host,
           mode: game.mode,
           maxPlayers: game.maxPlayers,
           friendlyFire: game.friendlyFire,
+          mapId: game.mapId,
+          mapName: game.mapName,
+          mapGrid: rematchMapGrid,
+          mapW: rematchMapDef.width,
+          mapH: rematchMapDef.height,
+          doorPositions: rematchDoorPositions,
           status: 'starting',
           createdAt: Date.now(),
           started: false,
@@ -483,11 +592,16 @@ io.on('connection', (socket) => {
           };
         }
 
+        const rematchStartMapDef = MAPS[newGame.mapId] || MAPS['test-arena'];
         const startPayload = {
           gameId: newGame.id,
           spawnData,
           mode: newGame.mode,
           friendlyFire: newGame.friendlyFire,
+          mapId: newGame.mapId,
+          mapGrid: rematchStartMapDef.grid,
+          mapWidth: rematchStartMapDef.width,
+          mapHeight: rematchStartMapDef.height,
         };
 
         io.to(roomName).emit('game:rematchStarting', startPayload);
@@ -599,12 +713,31 @@ io.on('connection', (socket) => {
     const maxPlayers = mode === '1v1' ? 2 : 4;
     const friendlyFire = mode === '2v2' ? !!data.friendlyFire : false;
 
+    // Map selection
+    const mapId = (data.map && MAPS[data.map]) ? data.map : 'test-arena';
+    const mapDef = MAPS[mapId];
+
+    // Build per-game map state (deep copy for door toggling)
+    const mapGrid = mapDef.grid.map(row => [...row]);
+    const doorPositions = new Set();
+    for (let y = 0; y < mapDef.height; y++) {
+      for (let x = 0; x < mapDef.width; x++) {
+        if (mapDef.grid[y][x] === 10) doorPositions.add(x + ',' + y);
+      }
+    }
+
     const game = {
       id: uuidv4().slice(0, 8),
       host: socket.username,
       mode,
       maxPlayers,
       friendlyFire,
+      mapId,
+      mapName: mapDef.name,
+      mapGrid,
+      mapW: mapDef.width,
+      mapH: mapDef.height,
+      doorPositions,
       status: 'waiting',
       createdAt: Date.now(),
       started: false,
@@ -731,11 +864,16 @@ io.on('connection', (socket) => {
     }
 
     // Notify all players in the game room to load mp-game.html
+    const mapDef = MAPS[game.mapId];
     const startingPayload = {
       gameId: game.id,
       spawnData,
       mode: game.mode,
       friendlyFire: game.friendlyFire,
+      mapId: game.mapId,
+      mapGrid: mapDef.grid,
+      mapWidth: mapDef.width,
+      mapHeight: mapDef.height,
     };
     for (const [username] of game.players) {
       emitToUser(username, 'game:starting', startingPayload);

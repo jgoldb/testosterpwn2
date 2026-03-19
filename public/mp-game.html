@@ -373,15 +373,26 @@ const gameId = sessionStorage.getItem('tp_gameId');
 const spawnData = JSON.parse(sessionStorage.getItem('tp_spawnData') || 'null');
 const gameMode = sessionStorage.getItem('tp_gameMode');
 const friendlyFire = sessionStorage.getItem('tp_friendlyFire') === '1';
+const mapGrid = JSON.parse(sessionStorage.getItem('tp_mapGrid') || 'null');
+const mapWidth = parseInt(sessionStorage.getItem('tp_mapWidth') || '0');
+const mapHeight = parseInt(sessionStorage.getItem('tp_mapHeight') || '0');
 
 if (!token || !mpUsername || !gameId || !spawnData) {
   window.location.href = '/lobby.html';
+}
+
+// Load map into engine
+if (mapGrid && mapWidth && mapHeight) {
+  E.setMap(mapGrid, mapWidth, mapHeight);
 }
 
 sessionStorage.removeItem('tp_gameId');
 sessionStorage.removeItem('tp_spawnData');
 sessionStorage.removeItem('tp_gameMode');
 sessionStorage.removeItem('tp_friendlyFire');
+sessionStorage.removeItem('tp_mapGrid');
+sessionStorage.removeItem('tp_mapWidth');
+sessionStorage.removeItem('tp_mapHeight');
 
 // ========================================
 // Player colors
@@ -485,6 +496,12 @@ jumpAudio.volume = 0.5;
 const shootAudio = new Audio('/audio/shoot.mp3');
 shootAudio.volume = 0.5;
 
+const doorToggleAudio = new Audio('/audio/door_toggle.mp3');
+doorToggleAudio.volume = 0.5;
+
+const glassBreakAudio = new Audio('/audio/glass_break.mp3');
+glassBreakAudio.volume = 0.5;
+
 const remoteAudio = new Map();
 
 function initRemoteAudio(username) {
@@ -500,6 +517,12 @@ function initRemoteAudio(username) {
 
 function getRemoteVolume(rp) {
   const dx = rp.x - player.x, dy = rp.y - player.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  return Math.max(0, 1 - dist / AUDIO_MAX_DIST) * masterVolume;
+}
+
+function getPositionalVolume(wx, wy) {
+  const dx = (wx + 0.5) - player.x, dy = (wy + 0.5) - player.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
   return Math.max(0, 1 - dist / AUDIO_MAX_DIST) * masterVolume;
 }
@@ -724,6 +747,8 @@ function interpolateRemotePlayers(dt) {
 // ========================================
 // Game update loop
 // ========================================
+let lastInteractKey = false;
+
 function gameUpdate(time, delta) {
   const dt = delta / 16.666;
 
@@ -731,12 +756,23 @@ function gameUpdate(time, delta) {
     const entities = Array.from(remotePlayers.values());
     E.handleMovement(player, keys, dt, entities, masterVolume, jumpAudio);
     handleShooting(dt);
+
+    // Door interaction (E key)
+    if (keys['KeyE'] && !lastInteractKey) {
+      const door = E.findNearbyDoor(player.x, player.y, player.angle);
+      if (door) {
+        socket.emit('game:interact', { x: door.x, y: door.y });
+      }
+    }
+    lastInteractKey = !!keys['KeyE'];
   } else {
     E.tickShootingVisuals(player, dt);
   }
 
   // Smooth interpolation of remote players (frame-rate independent)
   interpolateRemotePlayers(dt);
+  E.updateDoorAnimations(dt);
+  E.updateWindowAnimations(dt);
   updateProjectiles(dt);
 
   updateLocalFootsteps();
@@ -745,6 +781,7 @@ function gameUpdate(time, delta) {
   E.castRays(player);
   E.renderSprites(player, buildRemotePlayerEntities());
   E.renderProjectiles(player, projectiles);
+  E.applyWindowOverlays();
   E.commitFrame(this);
   if (player.alive) E.renderWeapon(player);
 
@@ -798,8 +835,19 @@ function updateProjectiles(dt) {
     p.y += Math.sin(p.angle) * p.speed * dt;
     p.life -= dt;
     const mx = Math.floor(p.x), my = Math.floor(p.y);
-    if (mx < 0 || mx >= E.MAP_W || my < 0 || my >= E.MAP_H || E.MAP[my][mx] > 0 || p.life <= 0) {
+    if (mx < 0 || mx >= E.MAP_W || my < 0 || my >= E.MAP_H || p.life <= 0) {
       projectiles.splice(i, 1);
+    } else if (E.MAP[my][mx] > 0) {
+      if (E.MAP[my][mx] === 11 && E.isWindowBroken(mx, my)) {
+        // broken window - projectile passes through
+      } else if (E.MAP[my][mx] === 10 && E.isDoorGap(mx, my, p.x, p.y, p.angle)) {
+        // door gap - projectile passes through
+      } else {
+        if (E.MAP[my][mx] === 11) {
+          socket.emit('game:shootWindow', { x: mx, y: my });
+        }
+        projectiles.splice(i, 1);
+      }
     }
   }
 }
@@ -1185,6 +1233,28 @@ socket.on('game:playerFire', (data) => {
   }
 });
 
+// Door toggled
+socket.on('game:doorToggle', (data) => {
+  E.setDoorState(data.x, data.y, data.open);
+  const vol = getPositionalVolume(data.x, data.y);
+  if (vol > 0) {
+    doorToggleAudio.currentTime = 0;
+    doorToggleAudio.volume = vol;
+    doorToggleAudio.play().catch(() => {});
+  }
+});
+
+// Window broken
+socket.on('game:windowBreak', (data) => {
+  E.breakWindow(data.x, data.y);
+  const vol = getPositionalVolume(data.x, data.y);
+  if (vol > 0) {
+    glassBreakAudio.currentTime = 0;
+    glassBreakAudio.volume = vol;
+    glassBreakAudio.play().catch(() => {});
+  }
+});
+
 // Player was hit
 socket.on('game:playerHit', (data) => {
   if (data.target === mpUsername) {
@@ -1266,6 +1336,9 @@ socket.on('game:rematchStarting', (data) => {
   sessionStorage.setItem('tp_spawnData', JSON.stringify(data.spawnData));
   sessionStorage.setItem('tp_gameMode', data.mode);
   sessionStorage.setItem('tp_friendlyFire', data.friendlyFire ? '1' : '0');
+  sessionStorage.setItem('tp_mapGrid', JSON.stringify(data.mapGrid));
+  sessionStorage.setItem('tp_mapWidth', String(data.mapWidth));
+  sessionStorage.setItem('tp_mapHeight', String(data.mapHeight));
   window.location.href = '/mp-game.html';
 });
 </script>

@@ -654,6 +654,9 @@ socket.on('game:starting', (data) => {
   sessionStorage.setItem('tp_spawnData', JSON.stringify(data.spawnData));
   sessionStorage.setItem('tp_gameMode', data.mode);
   sessionStorage.setItem('tp_friendlyFire', data.friendlyFire ? '1' : '0');
+  sessionStorage.setItem('tp_mapGrid', JSON.stringify(data.mapGrid));
+  sessionStorage.setItem('tp_mapWidth', String(data.mapWidth));
+  sessionStorage.setItem('tp_mapHeight', String(data.mapHeight));
   window.location.href = '/mp-game.html';
 });
 
@@ -685,11 +688,13 @@ function renderGamesList() {
     const modeClass = g.mode === '1v1' ? 'm-1v1' : g.mode === '2v2' ? 'm-2v2' : 'm-ffa';
     const full = g.players.length >= g.maxPlayers;
     const inGame = g.players.some(p => p.username === username);
+    const mapLabel = g.mapName || 'Test Arena';
     html += '<div class="game-card">' +
       '<div class="game-card-top">' +
         '<span class="game-host">' + escapeHtml(g.host) + '\'s game</span>' +
         '<span class="game-mode ' + modeClass + '">' + escapeHtml(g.mode) + '</span>' +
       '</div>' +
+      '<div style="font-size:9px;color:#888;letter-spacing:1px;margin-bottom:4px">' + escapeHtml(mapLabel) + '</div>' +
       '<div class="game-card-bottom">' +
         '<span class="game-players">' + g.players.length + '/' + g.maxPlayers + ' players</span>' +
         (inGame
@@ -701,11 +706,13 @@ function renderGamesList() {
   }
   for (const g of playingGames) {
     const modeClass = g.mode === '1v1' ? 'm-1v1' : g.mode === '2v2' ? 'm-2v2' : 'm-ffa';
+    const playingMapLabel = g.mapName || 'Test Arena';
     html += '<div class="game-card" style="opacity:0.5">' +
       '<div class="game-card-top">' +
         '<span class="game-host">' + escapeHtml(g.host) + '\'s game</span>' +
         '<span class="game-mode ' + modeClass + '">' + escapeHtml(g.mode) + '</span>' +
       '</div>' +
+      '<div style="font-size:9px;color:#888;letter-spacing:1px;margin-bottom:4px">' + escapeHtml(playingMapLabel) + '</div>' +
       '<div class="game-card-bottom">' +
         '<span class="game-players">' + g.players.length + '/' + g.maxPlayers + '</span>' +
         '<span class="game-status playing">IN PROGRESS</span>' +
@@ -724,6 +731,11 @@ function renderCreateForm() {
         '<div class="mode-option selected" data-mode="1v1" onclick="selectMode(this)">1v1</div>' +
         '<div class="mode-option" data-mode="2v2" onclick="selectMode(this)">2v2</div>' +
         '<div class="mode-option" data-mode="ffa" onclick="selectMode(this)">FFA</div>' +
+      '</div>' +
+      '<div class="room-section-label" style="margin-top:4px">Map</div>' +
+      '<div class="mode-options" id="map-options">' +
+        '<div class="mode-option selected" data-map="test-arena" onclick="selectMap(this)">Test Arena</div>' +
+        '<div class="mode-option" data-map="the-cage" onclick="selectMap(this)">The Cage</div>' +
       '</div>' +
       '<div class="ff-toggle hidden" id="ff-toggle">' +
         '<input type="checkbox" id="ff-check">' +
@@ -784,11 +796,13 @@ function renderRoomView() {
     else canStart = g.players.length >= 2;
   }
 
+  const roomMapLabel = g.mapName || 'Test Arena';
   gamesContent.innerHTML =
     '<div class="room-view">' +
       '<div class="room-title">' + escapeHtml(g.host) + '\'s Game</div>' +
       '<span class="room-mode-badge game-mode ' + modeClass + '">' + escapeHtml(g.mode) + '</span>' +
       ' <span style="color:#888;font-size:10px">' + g.players.length + '/' + g.maxPlayers + '</span>' +
+      '<div style="color:#888;font-size:10px;letter-spacing:1px;margin-top:4px">MAP: ' + escapeHtml(roomMapLabel) + '</div>' +
       playersHtml +
       '<div class="room-buttons">' +
         (isHost
@@ -806,17 +820,25 @@ function renderRoomView() {
 // ========================================
 
 function selectMode(el) {
-  document.querySelectorAll('.mode-option').forEach(o => o.classList.remove('selected'));
+  const modeOptions = el.parentElement;
+  modeOptions.querySelectorAll('.mode-option').forEach(o => o.classList.remove('selected'));
   el.classList.add('selected');
   const ff = document.getElementById('ff-toggle');
   if (el.dataset.mode === '2v2') ff.classList.remove('hidden');
   else ff.classList.add('hidden');
 }
 
+function selectMap(el) {
+  const mapOptions = el.parentElement;
+  mapOptions.querySelectorAll('.mode-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
 function submitCreate() {
-  const mode = document.querySelector('.mode-option.selected')?.dataset.mode || '1v1';
+  const mode = document.querySelector('.mode-options .mode-option.selected[data-mode]')?.dataset.mode || '1v1';
+  const map = document.querySelector('#map-options .mode-option.selected')?.dataset.map || 'test-arena';
   const friendlyFire = document.getElementById('ff-check')?.checked || false;
-  socket.emit('game:create', { mode, friendlyFire });
+  socket.emit('game:create', { mode, friendlyFire, map });
 }
 
 function cancelCreate() {
