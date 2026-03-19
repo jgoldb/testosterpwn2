@@ -15,6 +15,26 @@ const NUM_RAYS = RENDER_W;
 const MAX_DEPTH = 30;
 const BASE_ROT_SPEED = 0.004;
 
+// --- Multi-level constants ---
+const EYE_HEIGHT = 0.5;
+const JUMP_VEL_WORLD = 0.052;
+const GRAVITY_WORLD = 0.003;
+const STEP_HEIGHT = 0.35;
+const CROUCH_WORLD = 0.083;
+const RAILING_HEIGHT = 0.5;
+const JUMP_LEGACY_SCALE = 55 / RENDER_H; // converts world-unit jumpZ to legacy pixel offset
+
+// --- Multi-level state ---
+let HEIGHTMAP = null;  // 2D array [y][x] of floor heights, null for flat maps
+let CEILING_H = 1.0;   // world units — 1.0 for flat, 3.0 for multi-level
+let multiLevel = false;
+
+function getFloorHeight(x, y) {
+  if (!HEIGHTMAP) return 0;
+  if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) return 0;
+  return HEIGHTMAP[y][x];
+}
+
 // --- Map ---
 let MAP = [
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -54,7 +74,7 @@ const DOOR_SPEED = 0.012;
 let brokenWindows = new Map(); // "x,y" -> { progress: 0-1 }
 const SHATTER_SPEED = 0.02;
 
-function setMap(newMap, w, h) {
+function setMap(newMap, w, h, heightMap, ceilingH) {
   MAP = newMap.map(row => [...row]);
   MAP_W = w;
   MAP_H = h;
@@ -65,6 +85,15 @@ function setMap(newMap, w, h) {
     for (let x = 0; x < w; x++) {
       if (newMap[y][x] === 10) doorPositions.add(x + ',' + y);
     }
+  }
+  if (heightMap) {
+    HEIGHTMAP = heightMap.map(row => [...row]);
+    CEILING_H = ceilingH || 3.0;
+    multiLevel = true;
+  } else {
+    HEIGHTMAP = null;
+    CEILING_H = 1.0;
+    multiLevel = false;
   }
 }
 
@@ -79,11 +108,24 @@ function isCellPassable(cellX, cellY, faceFrac, r) {
   if (cellX < 0 || cellX >= MAP_W || cellY < 0 || cellY >= MAP_H) return false;
   const cell = MAP[cellY][cellX];
   if (cell === 0) return true;
+  if (cell === 12) return false; // railing blocks movement
   if (!isDoorPosition(cellX, cellY)) return false;
   const anim = doorAnimStates.get(cellX + ',' + cellY);
   const progress = anim ? anim.progress : 0;
   if (progress < 0.02) return false;
   return faceFrac + r < progress;
+}
+
+// Height-aware passability for multi-level maps
+// Returns true if player at fromFloorZ can move into cell (cellX, cellY)
+function isCellPassableWithHeight(cellX, cellY, faceFrac, r, fromFloorZ) {
+  if (!isCellPassable(cellX, cellY, faceFrac, r)) return false;
+  if (!multiLevel) return true;
+  const targetFloor = getFloorHeight(cellX, cellY);
+  const heightDiff = targetFloor - fromFloorZ;
+  // Can step up if height difference is within STEP_HEIGHT
+  // Can always step down (will fall)
+  return heightDiff <= STEP_HEIGHT;
 }
 
 // Check if a projectile position falls in the open gap of a door
@@ -182,6 +224,12 @@ let depthBuffer = null;
 let frameImgData = null;
 let wallTextures = null;
 
+// Pre-allocated per-pixel occlusion buffer for multi-level raycasting
+const mlOcclusion = new Uint8Array(RENDER_H);
+
+// Per-pixel depth buffer for multi-level sprite rendering
+let pixelDepthBuffer = null;
+
 // --- Texture Generation ---
 function generateTextures() {
   const textures = {};
@@ -197,6 +245,7 @@ function generateTextures() {
     9: { base: [30, 30, 30], accent: [100, 100, 100] },
     10: { base: [50, 35, 18], accent: [220, 160, 50] },
     11: { base: [16, 20, 28], accent: [80, 180, 255] },
+    12: { base: [35, 30, 25], accent: [160, 140, 100] },
   };
   for (const [id, t] of Object.entries(types)) {
     const c = document.createElement('canvas');
@@ -358,6 +407,27 @@ function generateTextures() {
       ctx.fillRect(TEX_SIZE - 8, 4, 4, 4);
       ctx.fillRect(4, 54, 4, 4);
       ctx.fillRect(TEX_SIZE - 8, 54, 4, 4);
+
+    } else if (numId === 12) {
+      // Railing: horizontal bars with vertical posts
+      // Vertical posts
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.6)`;
+      ctx.fillRect(2, 0, 4, TEX_SIZE);
+      ctx.fillRect(30, 0, 4, TEX_SIZE);
+      ctx.fillRect(58, 0, 4, TEX_SIZE);
+      // Top rail (thick)
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.8)`;
+      ctx.fillRect(0, 2, TEX_SIZE, 4);
+      // Mid rail
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.5)`;
+      ctx.fillRect(0, 24, TEX_SIZE, 3);
+      // Bottom rail
+      ctx.fillRect(0, 46, TEX_SIZE, 3);
+      // Post caps
+      ctx.fillStyle = `rgba(${t.accent[0]},${t.accent[1]},${t.accent[2]},0.9)`;
+      ctx.fillRect(1, 0, 6, 3);
+      ctx.fillRect(29, 0, 6, 3);
+      ctx.fillRect(57, 0, 6, 3);
     }
 
     // Noise for all types
@@ -496,18 +566,30 @@ function generateDirectionalSprites(bodyColor, eyeColor, glowColor, baseW) {
 }
 
 // --- Line of Sight ---
-function hasLineOfSight(x0, y0, x1, y1) {
+function hasLineOfSight(x0, y0, x1, y1, z0, z1) {
   const dx = x1 - x0, dy = y1 - y0;
   const dist = Math.sqrt(dx * dx + dy * dy);
   const steps = Math.ceil(dist * 4);
   const adx = Math.abs(dx), ady = Math.abs(dy);
+  const hasZ = multiLevel && z0 !== undefined && z1 !== undefined;
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
     const sx = x0 + dx * t, sy = y0 + dy * t;
     const mx = Math.floor(sx), my = Math.floor(sy);
     if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return false;
     const cell = MAP[my][mx];
-    if (cell === 0 || cell === 11) continue;
+    if (cell === 0) continue;
+    if (cell === 11) continue; // windows don't block LOS
+    if (cell === 12) {
+      // Railing: check if the LOS ray passes above the railing
+      if (hasZ) {
+        const railFloor = getFloorHeight(mx, my);
+        const railTop = railFloor + RAILING_HEIGHT;
+        const zAtPoint = z0 + (z1 - z0) * t;
+        if (zAtPoint > railTop) continue; // ray passes over railing
+      }
+      continue; // railings don't block LOS by default (can shoot over)
+    }
     if (isDoorPosition(mx, my)) {
       const anim = doorAnimStates.get(mx + ',' + my);
       const progress = anim ? anim.progress : 0;
@@ -520,15 +602,464 @@ function hasLineOfSight(x0, y0, x1, y1) {
 }
 
 // --- Raycasting ---
+
+// Flat-map raycaster (extracted original, zero changes to behavior)
+function castRayFlat(data, i, player, bobOffset, wallOffset) {
+  const rayAngle = player.angle - HALF_FOV + (i / NUM_RAYS) * FOV;
+  const sin = Math.sin(rayAngle), cos = Math.cos(rayAngle);
+  let wallType = 0, side = 0;
+  let mapX = Math.floor(player.x), mapY = Math.floor(player.y);
+  const deltaDistX = Math.abs(1 / (cos || 0.0001));
+  const deltaDistY = Math.abs(1 / (sin || 0.0001));
+  const stepX = cos >= 0 ? 1 : -1, stepY = sin >= 0 ? 1 : -1;
+  let sideDistX = cos >= 0 ? (mapX + 1 - player.x) * deltaDistX : (player.x - mapX) * deltaDistX;
+  let sideDistY = sin >= 0 ? (mapY + 1 - player.y) * deltaDistY : (player.y - mapY) * deltaDistY;
+  let hit = false;
+  let doorSlide = 0;
+  let winHit = null;
+
+  for (let step = 0; step < 64; step++) {
+    if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+    else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+    if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
+
+    const cell = MAP[mapY][mapX];
+    if (cell <= 0) continue;
+
+    if (cell === 11) {
+      if (!winHit) winHit = { side, mapX, mapY };
+      continue;
+    }
+
+    if (cell === 10) {
+      const anim = doorAnimStates.get(mapX + ',' + mapY);
+      const progress = anim ? anim.progress : 0;
+      if (progress > 0.99) continue;
+      if (progress > 0.01) {
+        let dDist;
+        if (side === 0) dDist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
+        else dDist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
+        dDist = Math.max(dDist, 0.01);
+        let dWallX;
+        if (side === 0) dWallX = player.y + dDist * sin;
+        else dWallX = player.x + dDist * cos;
+        dWallX -= Math.floor(dWallX);
+        if (dWallX < progress) continue;
+        doorSlide = progress;
+      }
+      wallType = 10; hit = true; break;
+    }
+
+    wallType = cell; hit = true; break;
+  }
+
+  if (!hit && !winHit) { depthBuffer[i] = MAX_DEPTH; return; }
+
+  const horizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
+
+  if (hit) {
+    let dist;
+    if (side === 0) dist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
+    else dist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
+    dist = Math.max(dist, 0.01);
+    depthBuffer[i] = dist;
+
+    const lineHeight = Math.floor(RENDER_H / dist);
+    const drawStart = Math.floor(horizon - lineHeight / 2);
+
+    let wallX;
+    if (side === 0) wallX = player.y + dist * sin;
+    else wallX = player.x + dist * cos;
+    wallX -= Math.floor(wallX);
+    let texX;
+    if (wallType === 10 && doorSlide > 0) {
+      texX = Math.floor((wallX - doorSlide) * TEX_SIZE);
+    } else {
+      texX = Math.floor(wallX * TEX_SIZE);
+    }
+    if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) texX = TEX_SIZE - texX - 1;
+    texX = Math.max(0, Math.min(TEX_SIZE - 1, texX));
+
+    const tex = wallTextures[wallType];
+    if (tex) {
+      const yStart = Math.max(0, drawStart);
+      const yEnd = Math.min(RENDER_H - 1, Math.floor(horizon + lineHeight / 2));
+      const fogFactor = Math.min(1, dist / MAX_DEPTH);
+      for (let y = yStart; y <= yEnd; y++) {
+        const texY = Math.floor(((y - drawStart) / lineHeight) * TEX_SIZE) & (TEX_SIZE - 1);
+        const texIdx = (texY * TEX_SIZE + texX) * 4;
+        let r = tex.data[texIdx], g = tex.data[texIdx + 1], b = tex.data[texIdx + 2];
+        if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
+        r = Math.floor(r * (1 - fogFactor * 0.85));
+        g = Math.floor(g * (1 - fogFactor * 0.85));
+        b = Math.floor(b * (1 - fogFactor * 0.85));
+        const idx = (y * RENDER_W + i) * 4;
+        data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+      }
+    }
+  }
+
+  if (winHit) {
+    const wS = winHit.side;
+    let wDist;
+    if (wS === 0) wDist = (winHit.mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
+    else wDist = (winHit.mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
+    wDist = Math.max(wDist, 0.01);
+    if (!hit) depthBuffer[i] = MAX_DEPTH;
+
+    let wWallX;
+    if (wS === 0) wWallX = player.y + wDist * sin;
+    else wWallX = player.x + wDist * cos;
+    wWallX -= Math.floor(wWallX);
+    let wTexX = Math.floor(wWallX * TEX_SIZE);
+    if ((wS === 0 && cos < 0) || (wS === 1 && sin > 0)) wTexX = TEX_SIZE - wTexX - 1;
+    wTexX = Math.max(0, Math.min(TEX_SIZE - 1, wTexX));
+
+    const wLineHeight = Math.floor(RENDER_H / wDist);
+    const wDrawStart = Math.floor(horizon - wLineHeight / 2);
+    const wFog = Math.min(1, wDist / MAX_DEPTH);
+
+    pendingWindowOverlays.push({
+      column: i, wS, wTexX, wLineHeight, wDrawStart, wFog,
+      mapX: winHit.mapX, mapY: winHit.mapY,
+    });
+  }
+}
+
+// Floor strip renderer for multi-level raycasting (renders during DDA for correct occlusion)
+function _mlFloorStrip(data, i, nearD, farD, floorZ, eyeZ, horizon, cos, sin, px, py) {
+  if (floorZ >= eyeZ || nearD >= farD) return;
+  const yNear = horizon - (floorZ - eyeZ) * (RENDER_H / nearD);
+  const yFar = horizon - (floorZ - eyeZ) * (RENDER_H / farD);
+  const yTop = Math.max(0, Math.floor(Math.min(yNear, yFar)));
+  const yBot = Math.min(RENDER_H - 1, Math.ceil(Math.max(yNear, yFar)));
+  const hLevel = Math.floor(Math.min(2, floorZ + 0.1));
+  let fl, fd;
+  if (hLevel <= 0) { fl = [32,36,28]; fd = [18,22,16]; }
+  else if (hLevel === 1) { fl = [38,36,34]; fd = [24,23,21]; }
+  else { fl = [28,32,40]; fd = [16,20,28]; }
+  for (let y = yTop; y <= yBot; y++) {
+    if (mlOcclusion[y]) continue;
+    if (y <= horizon) continue;
+    const d = (eyeZ - floorZ) * RENDER_H / (y - horizon);
+    if (d < nearD - 0.01 || d > farD + 0.01 || d <= 0) continue;
+    mlOcclusion[y] = 1;
+    pixelDepthBuffer[y * RENDER_W + i] = d;
+    const wx = px + d * cos, wy = py + d * sin;
+    const ck = (Math.floor(wx) + Math.floor(wy)) & 1;
+    const br = 1 - Math.min(1, d / MAX_DEPTH) * 0.85;
+    const c = ck ? fl : fd;
+    const idx = (y * RENDER_W + i) * 4;
+    data[idx] = Math.floor(c[0]*br); data[idx+1] = Math.floor(c[1]*br);
+    data[idx+2] = Math.floor(c[2]*br); data[idx+3] = 255;
+  }
+}
+
+// Ceiling strip renderer for multi-level raycasting
+function _mlCeilStrip(data, i, nearD, farD, ceilZ, eyeZ, horizon, cos, sin, px, py) {
+  if (ceilZ <= eyeZ || nearD >= farD) return;
+  const cNear = horizon - (ceilZ - eyeZ) * (RENDER_H / nearD);
+  const cFar = horizon - (ceilZ - eyeZ) * (RENDER_H / farD);
+  const cTop = Math.max(0, Math.floor(Math.min(cNear, cFar)));
+  const cBot = Math.min(RENDER_H - 1, Math.ceil(Math.max(cNear, cFar)));
+  const isGlobal = ceilZ >= CEILING_H - 0.01;
+  let cl, cd;
+  if (isGlobal) { cl = [16,18,26]; cd = [10,12,20]; }
+  else { cl = [30,28,26]; cd = [20,19,18]; }
+  for (let y = cTop; y <= cBot; y++) {
+    if (mlOcclusion[y]) continue;
+    if (y >= horizon) continue;
+    const d = (ceilZ - eyeZ) * RENDER_H / (horizon - y);
+    if (d < nearD - 0.01 || d > farD + 0.01 || d <= 0) continue;
+    mlOcclusion[y] = 1;
+    pixelDepthBuffer[y * RENDER_W + i] = d;
+    const wx = px + d * cos, wy = py + d * sin;
+    const ck = (Math.floor(wx) + Math.floor(wy)) & 1;
+    const br = 1 - Math.min(1, d / MAX_DEPTH) * 0.85;
+    const c = ck ? cl : cd;
+    const idx = (y * RENDER_W + i) * 4;
+    data[idx] = Math.floor(c[0]*br); data[idx+1] = Math.floor(c[1]*br);
+    data[idx+2] = Math.floor(c[2]*br); data[idx+3] = 255;
+  }
+}
+
+// Multi-level raycaster with per-pixel occlusion tracking
+function castRayMultiLevel(data, i, player, bobOffset, eyeZ) {
+  const rayAngle = player.angle - HALF_FOV + (i / NUM_RAYS) * FOV;
+  const sin = Math.sin(rayAngle), cos = Math.cos(rayAngle);
+  let mapX = Math.floor(player.x), mapY = Math.floor(player.y);
+  const deltaDistX = Math.abs(1 / (cos || 0.0001));
+  const deltaDistY = Math.abs(1 / (sin || 0.0001));
+  const stepX = cos >= 0 ? 1 : -1, stepY = sin >= 0 ? 1 : -1;
+  let sideDistX = cos >= 0 ? (mapX + 1 - player.x) * deltaDistX : (player.x - mapX) * deltaDistX;
+  let sideDistY = sin >= 0 ? (mapY + 1 - player.y) * deltaDistY : (player.y - mapY) * deltaDistY;
+
+  const horizon = RENDER_H / 2 + player.pitch + bobOffset;
+
+  // Per-pixel occlusion: reuse pre-allocated buffer
+  mlOcclusion.fill(0);
+  let rangeTop = 0, rangeBot = RENDER_H - 1;
+  depthBuffer[i] = MAX_DEPTH;
+  let firstDist = MAX_DEPTH;
+
+  let prevFloor = getFloorHeight(Math.floor(player.x), Math.floor(player.y));
+  let winHit = null;
+
+  // Floor/ceiling strip tracking for inline rendering during DDA
+  let segStartDist = 0.01;
+  let rayEndDist = MAX_DEPTH;
+  let localCeilZ = CEILING_H; // effective ceiling height for current segment
+
+  for (let step = 0; step < 64; step++) {
+    let side;
+    if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+    else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+    if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
+    if (rangeTop > rangeBot) break;
+
+    let dist;
+    if (side === 0) dist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
+    else dist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
+    dist = Math.max(dist, 0.01);
+
+    const cell = MAP[mapY][mapX];
+    const cellFloor = getFloorHeight(mapX, mapY);
+
+    // Compute texX for this wall hit
+    let wallX;
+    if (side === 0) wallX = player.y + dist * sin;
+    else wallX = player.x + dist * cos;
+    wallX -= Math.floor(wallX);
+    let texX = Math.floor(wallX * TEX_SIZE);
+    if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) texX = TEX_SIZE - texX - 1;
+    texX = Math.max(0, Math.min(TEX_SIZE - 1, texX));
+
+    // --- Ledge walls at height transitions (drawn for ALL cell types) ---
+    if (cellFloor !== prevFloor) {
+      if (dist > segStartDist) {
+        // RENDER floor/ceiling for previous space BEFORE the ledge wall
+        // This is critical: step floors must occlude ledge walls behind them
+        _mlFloorStrip(data, i, segStartDist, dist, prevFloor, eyeZ, horizon, cos, sin, player.x, player.y);
+        _mlCeilStrip(data, i, segStartDist, dist, localCeilZ, eyeZ, horizon, cos, sin, player.x, player.y);
+
+        // Update ceiling tracking
+        // Step UP: ceiling resets to global (no artificial underside for solid steps)
+        // Step DOWN: ceiling becomes underside of the higher floor we just left
+        if (cellFloor > prevFloor) {
+          localCeilZ = CEILING_H;
+        } else {
+          localCeilZ = prevFloor;
+        }
+        segStartDist = dist;
+      }
+      const highZ = Math.max(prevFloor, cellFloor);
+      const lowZ = Math.min(prevFloor, cellFloor);
+      const ledgeTopY = Math.floor(horizon - (highZ - eyeZ) * (RENDER_H / dist));
+      const ledgeBotY = Math.floor(horizon - (lowZ - eyeZ) * (RENDER_H / dist));
+      const ledgeTex = wallTextures[7];
+      if (ledgeTex && ledgeBotY > ledgeTopY) {
+        const clampTop = Math.max(0, ledgeTopY);
+        const clampBot = Math.min(RENDER_H - 1, ledgeBotY);
+        const fogFactor = Math.min(1, dist / MAX_DEPTH);
+        const pixH = ledgeBotY - ledgeTopY;
+        const worldH = highZ - lowZ;
+        for (let y = clampTop; y <= clampBot; y++) {
+          if (mlOcclusion[y]) continue;
+          mlOcclusion[y] = 1;
+          const texY = Math.floor(((y - ledgeTopY) / pixH) * worldH * TEX_SIZE) & (TEX_SIZE - 1);
+          const texIdx = (texY * TEX_SIZE + texX) * 4;
+          let r = ledgeTex.data[texIdx], g = ledgeTex.data[texIdx + 1], b = ledgeTex.data[texIdx + 2];
+          if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
+          r = Math.floor(r * (1 - fogFactor * 0.85));
+          g = Math.floor(g * (1 - fogFactor * 0.85));
+          b = Math.floor(b * (1 - fogFactor * 0.85));
+          const idx = (y * RENDER_W + i) * 4;
+          data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+          pixelDepthBuffer[y * RENDER_W + i] = dist;
+        }
+        if (dist < firstDist) { depthBuffer[i] = dist; firstDist = dist; }
+        // Update range conservatively for step-UP only
+        // (step-DOWN handled correctly by per-pixel occlusion)
+        if (cellFloor > prevFloor) {
+          rangeBot = Math.min(rangeBot, ledgeTopY - 1);
+        }
+      }
+    }
+    prevFloor = cellFloor;
+
+    // Empty cell — ray continues
+    if (cell <= 0) continue;
+
+    // --- Window ---
+    if (cell === 11) {
+      if (!winHit) winHit = { side, mapX, mapY, dist };
+      continue;
+    }
+
+    // --- Railing: half-height wall, ray continues ---
+    if (cell === 12) {
+      const railTop = cellFloor + RAILING_HEIGHT;
+      const railTopY = Math.floor(horizon - (railTop - eyeZ) * (RENDER_H / dist));
+      const railBotY = Math.floor(horizon - (cellFloor - eyeZ) * (RENDER_H / dist));
+      const railTex = wallTextures[12];
+      if (railTex && railBotY > railTopY) {
+        const clampTop = Math.max(0, railTopY);
+        const clampBot = Math.min(RENDER_H - 1, railBotY);
+        const fogFactor = Math.min(1, dist / MAX_DEPTH);
+        const pixH = railBotY - railTopY;
+        for (let y = clampTop; y <= clampBot; y++) {
+          if (mlOcclusion[y]) continue;
+          mlOcclusion[y] = 1;
+          const texY = Math.floor(((y - railTopY) / pixH) * TEX_SIZE) & (TEX_SIZE - 1);
+          const texIdx = (texY * TEX_SIZE + texX) * 4;
+          let r = railTex.data[texIdx], g = railTex.data[texIdx + 1], b = railTex.data[texIdx + 2];
+          if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
+          r = Math.floor(r * (1 - fogFactor * 0.85));
+          g = Math.floor(g * (1 - fogFactor * 0.85));
+          b = Math.floor(b * (1 - fogFactor * 0.85));
+          const idx = (y * RENDER_W + i) * 4;
+          data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+          pixelDepthBuffer[y * RENDER_W + i] = dist;
+        }
+        if (dist < firstDist) { depthBuffer[i] = dist; firstDist = dist; }
+      }
+      continue;
+    }
+
+    // --- Door ---
+    if (cell === 10) {
+      const anim = doorAnimStates.get(mapX + ',' + mapY);
+      const progress = anim ? anim.progress : 0;
+      if (progress > 0.99) continue;
+      let doorSlide = 0;
+      if (progress > 0.01) {
+        let dWallX;
+        if (side === 0) dWallX = player.y + dist * sin;
+        else dWallX = player.x + dist * cos;
+        dWallX -= Math.floor(dWallX);
+        if (dWallX < progress) continue;
+        doorSlide = progress;
+      }
+      const wallTopY = Math.floor(horizon - (CEILING_H - eyeZ) * (RENDER_H / dist));
+      const wallBotY = Math.floor(horizon - (cellFloor - eyeZ) * (RENDER_H / dist));
+      const tex = wallTextures[10];
+      if (tex && wallBotY > wallTopY) {
+        const clampTop = Math.max(0, wallTopY);
+        const clampBot = Math.min(RENDER_H - 1, wallBotY);
+        // Door-specific texX with slide offset
+        let dTexX;
+        if (doorSlide > 0) dTexX = Math.floor((wallX - doorSlide) * TEX_SIZE);
+        else dTexX = Math.floor(wallX * TEX_SIZE);
+        if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) dTexX = TEX_SIZE - dTexX - 1;
+        dTexX = Math.max(0, Math.min(TEX_SIZE - 1, dTexX));
+        const fogFactor = Math.min(1, dist / MAX_DEPTH);
+        const pixH = wallBotY - wallTopY;
+        const wallWorldH = CEILING_H - cellFloor;
+        for (let y = clampTop; y <= clampBot; y++) {
+          if (mlOcclusion[y]) continue;
+          mlOcclusion[y] = 1;
+          const texY = Math.floor(((y - wallTopY) / pixH) * wallWorldH * TEX_SIZE) & (TEX_SIZE - 1);
+          const texIdx = (texY * TEX_SIZE + dTexX) * 4;
+          let r = tex.data[texIdx], g = tex.data[texIdx + 1], b = tex.data[texIdx + 2];
+          if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
+          r = Math.floor(r * (1 - fogFactor * 0.85));
+          g = Math.floor(g * (1 - fogFactor * 0.85));
+          b = Math.floor(b * (1 - fogFactor * 0.85));
+          const idx = (y * RENDER_W + i) * 4;
+          data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+          pixelDepthBuffer[y * RENDER_W + i] = dist;
+        }
+      }
+      if (dist < firstDist) { depthBuffer[i] = dist; firstDist = dist; }
+      rayEndDist = dist;
+      break;
+    }
+
+    // --- Solid wall ---
+    {
+      const wallTopY = Math.floor(horizon - (CEILING_H - eyeZ) * (RENDER_H / dist));
+      const wallBotY = Math.floor(horizon - (cellFloor - eyeZ) * (RENDER_H / dist));
+      const tex = wallTextures[cell];
+      if (tex && wallBotY > wallTopY) {
+        const clampTop = Math.max(0, wallTopY);
+        const clampBot = Math.min(RENDER_H - 1, wallBotY);
+        const fogFactor = Math.min(1, dist / MAX_DEPTH);
+        const pixH = wallBotY - wallTopY;
+        const wallWorldH = CEILING_H - cellFloor;
+        for (let y = clampTop; y <= clampBot; y++) {
+          if (mlOcclusion[y]) continue;
+          mlOcclusion[y] = 1;
+          const texY = Math.floor(((y - wallTopY) / pixH) * wallWorldH * TEX_SIZE) & (TEX_SIZE - 1);
+          const texIdx = (texY * TEX_SIZE + texX) * 4;
+          let r = tex.data[texIdx], g = tex.data[texIdx + 1], b = tex.data[texIdx + 2];
+          if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
+          r = Math.floor(r * (1 - fogFactor * 0.85));
+          g = Math.floor(g * (1 - fogFactor * 0.85));
+          b = Math.floor(b * (1 - fogFactor * 0.85));
+          const idx = (y * RENDER_W + i) * 4;
+          data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+          pixelDepthBuffer[y * RENDER_W + i] = dist;
+        }
+      }
+      if (dist < firstDist) { depthBuffer[i] = dist; firstDist = dist; }
+      rayEndDist = dist;
+      break;
+    }
+  }
+
+  // Render final floor/ceiling strip (from last height transition to ray end)
+  if (segStartDist < rayEndDist) {
+    _mlFloorStrip(data, i, segStartDist, rayEndDist, prevFloor, eyeZ, horizon, cos, sin, player.x, player.y);
+    _mlCeilStrip(data, i, segStartDist, rayEndDist, localCeilZ, eyeZ, horizon, cos, sin, player.x, player.y);
+  }
+
+  // Window overlay
+  if (winHit) {
+    const wS = winHit.side;
+    const wDist = winHit.dist;
+    const wFloor = getFloorHeight(winHit.mapX, winHit.mapY);
+    const wProjTop = Math.floor(horizon - (CEILING_H - eyeZ) * (RENDER_H / wDist));
+    const wProjBot = Math.floor(horizon - (wFloor - eyeZ) * (RENDER_H / wDist));
+    const wLineHeight = wProjBot - wProjTop;
+
+    let wWallX;
+    if (wS === 0) wWallX = player.y + wDist * sin;
+    else wWallX = player.x + wDist * cos;
+    wWallX -= Math.floor(wWallX);
+    let wTexX = Math.floor(wWallX * TEX_SIZE);
+    if ((wS === 0 && cos < 0) || (wS === 1 && sin > 0)) wTexX = TEX_SIZE - wTexX - 1;
+    wTexX = Math.max(0, Math.min(TEX_SIZE - 1, wTexX));
+    const wFog = Math.min(1, wDist / MAX_DEPTH);
+
+    pendingWindowOverlays.push({
+      column: i, wS, wTexX, wLineHeight, wDrawStart: wProjTop, wFog,
+      mapX: winHit.mapX, mapY: winHit.mapY,
+    });
+  }
+}
+
 function castRays(player) {
   pendingWindowOverlays = [];
   const imgData = renderCtx.createImageData(RENDER_W, RENDER_H);
   const data = imgData.data;
-  const crouchShift = -player.crouchOffset * 25;
-  const jumpShift = player.jumpZ * 55;
-  const wallOffset = jumpShift + crouchShift;
-  const horizonY = RENDER_H / 2 + player.pitch + crouchShift - jumpShift * 0.3;
 
+  // Compute eye height
+  let eyeZ, wallOffset;
+  if (multiLevel) {
+    const floorZ = player.floorZ || 0;
+    eyeZ = floorZ + EYE_HEIGHT + player.jumpZ - player.crouchOffset * CROUCH_WORLD;
+    wallOffset = 0; // multi-level uses eyeZ projection, no pixel offset
+  } else {
+    eyeZ = 0; // not used for flat
+    const crouchShift = -player.crouchOffset * 25;
+    const jumpShift = player.jumpZ * 55;
+    wallOffset = jumpShift + crouchShift;
+  }
+
+  // Sky/ground gradient
+  const horizonY = multiLevel
+    ? RENDER_H / 2 + player.pitch
+    : RENDER_H / 2 + player.pitch + (-player.crouchOffset * 25) - (player.jumpZ * 55) * 0.3;
   for (let y = 0; y < RENDER_H; y++) {
     let r, g, b;
     if (y < horizonY) {
@@ -544,126 +1075,21 @@ function castRays(player) {
     }
   }
 
+  const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
+
+  // Initialize per-pixel depth buffer for multi-level maps
+  if (multiLevel) {
+    if (!pixelDepthBuffer || pixelDepthBuffer.length !== RENDER_W * RENDER_H) {
+      pixelDepthBuffer = new Float32Array(RENDER_W * RENDER_H);
+    }
+    pixelDepthBuffer.fill(MAX_DEPTH);
+  }
+
   for (let i = 0; i < NUM_RAYS; i++) {
-    const rayAngle = player.angle - HALF_FOV + (i / NUM_RAYS) * FOV;
-    const sin = Math.sin(rayAngle), cos = Math.cos(rayAngle);
-    let wallType = 0, side = 0;
-    let mapX = Math.floor(player.x), mapY = Math.floor(player.y);
-    const deltaDistX = Math.abs(1 / (cos || 0.0001));
-    const deltaDistY = Math.abs(1 / (sin || 0.0001));
-    const stepX = cos >= 0 ? 1 : -1, stepY = sin >= 0 ? 1 : -1;
-    let sideDistX = cos >= 0 ? (mapX + 1 - player.x) * deltaDistX : (player.x - mapX) * deltaDistX;
-    let sideDistY = sin >= 0 ? (mapY + 1 - player.y) * deltaDistY : (player.y - mapY) * deltaDistY;
-    let hit = false;
-    let doorSlide = 0;
-    let winHit = null;
-
-    for (let step = 0; step < 64; step++) {
-      if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
-      else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
-      if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
-
-      const cell = MAP[mapY][mapX];
-      if (cell <= 0) continue;
-
-      if (cell === 11) {
-        if (!winHit) winHit = { side, mapX, mapY };
-        continue;
-      }
-
-      if (cell === 10) {
-        const anim = doorAnimStates.get(mapX + ',' + mapY);
-        const progress = anim ? anim.progress : 0;
-        if (progress > 0.99) continue;
-        if (progress > 0.01) {
-          let dDist;
-          if (side === 0) dDist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
-          else dDist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
-          dDist = Math.max(dDist, 0.01);
-          let dWallX;
-          if (side === 0) dWallX = player.y + dDist * sin;
-          else dWallX = player.x + dDist * cos;
-          dWallX -= Math.floor(dWallX);
-          if (dWallX < progress) continue;
-          doorSlide = progress;
-        }
-        wallType = 10; hit = true; break;
-      }
-
-      wallType = cell; hit = true; break;
-    }
-
-    if (!hit && !winHit) { depthBuffer[i] = MAX_DEPTH; continue; }
-
-    const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-    const horizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
-
-    if (hit) {
-      let dist;
-      if (side === 0) dist = (mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
-      else dist = (mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
-      dist = Math.max(dist, 0.01);
-      depthBuffer[i] = dist;
-
-      const lineHeight = Math.floor(RENDER_H / dist);
-      const drawStart = Math.floor(horizon - lineHeight / 2);
-
-      let wallX;
-      if (side === 0) wallX = player.y + dist * sin;
-      else wallX = player.x + dist * cos;
-      wallX -= Math.floor(wallX);
-      let texX;
-      if (wallType === 10 && doorSlide > 0) {
-        texX = Math.floor((wallX - doorSlide) * TEX_SIZE);
-      } else {
-        texX = Math.floor(wallX * TEX_SIZE);
-      }
-      if ((side === 0 && cos < 0) || (side === 1 && sin > 0)) texX = TEX_SIZE - texX - 1;
-      texX = Math.max(0, Math.min(TEX_SIZE - 1, texX));
-
-      const tex = wallTextures[wallType];
-      if (tex) {
-        const yStart = Math.max(0, drawStart);
-        const yEnd = Math.min(RENDER_H - 1, Math.floor(horizon + lineHeight / 2));
-        const fogFactor = Math.min(1, dist / MAX_DEPTH);
-        for (let y = yStart; y <= yEnd; y++) {
-          const texY = Math.floor(((y - drawStart) / lineHeight) * TEX_SIZE) & (TEX_SIZE - 1);
-          const texIdx = (texY * TEX_SIZE + texX) * 4;
-          let r = tex.data[texIdx], g = tex.data[texIdx + 1], b = tex.data[texIdx + 2];
-          if (side === 1) { r *= 0.7; g *= 0.7; b *= 0.7; }
-          r = Math.floor(r * (1 - fogFactor * 0.85));
-          g = Math.floor(g * (1 - fogFactor * 0.85));
-          b = Math.floor(b * (1 - fogFactor * 0.85));
-          const idx = (y * RENDER_W + i) * 4;
-          data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
-        }
-      }
-    }
-
-    if (winHit) {
-      const wS = winHit.side;
-      let wDist;
-      if (wS === 0) wDist = (winHit.mapX - player.x + (1 - stepX) / 2) / (cos || 0.0001);
-      else wDist = (winHit.mapY - player.y + (1 - stepY) / 2) / (sin || 0.0001);
-      wDist = Math.max(wDist, 0.01);
-      if (!hit) depthBuffer[i] = MAX_DEPTH;
-
-      let wWallX;
-      if (wS === 0) wWallX = player.y + wDist * sin;
-      else wWallX = player.x + wDist * cos;
-      wWallX -= Math.floor(wWallX);
-      let wTexX = Math.floor(wWallX * TEX_SIZE);
-      if ((wS === 0 && cos < 0) || (wS === 1 && sin > 0)) wTexX = TEX_SIZE - wTexX - 1;
-      wTexX = Math.max(0, Math.min(TEX_SIZE - 1, wTexX));
-
-      const wLineHeight = Math.floor(RENDER_H / wDist);
-      const wDrawStart = Math.floor(horizon - wLineHeight / 2);
-      const wFog = Math.min(1, wDist / MAX_DEPTH);
-
-      pendingWindowOverlays.push({
-        column: i, wS, wTexX, wLineHeight, wDrawStart, wFog,
-        mapX: winHit.mapX, mapY: winHit.mapY,
-      });
+    if (multiLevel) {
+      castRayMultiLevel(data, i, player, bobOffset, eyeZ);
+    } else {
+      castRayFlat(data, i, player, bobOffset, wallOffset);
     }
   }
   frameImgData = imgData;
@@ -730,7 +1156,17 @@ function renderSprites(player, entities) {
   if (!frameImgData) return;
   const data = frameImgData.data;
   const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
+
+  let useMultiLevelSprites = multiLevel;
+  let eyeZ, wallOffset;
+  if (useMultiLevelSprites) {
+    const floorZ = player.floorZ || 0;
+    eyeZ = floorZ + EYE_HEIGHT + player.jumpZ - player.crouchOffset * CROUCH_WORLD;
+    wallOffset = 0;
+  } else {
+    eyeZ = 0;
+    wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
+  }
 
   for (const ent of entities) {
     let angle = Math.atan2(ent.dy, ent.dx) - player.angle;
@@ -744,8 +1180,20 @@ function renderSprites(player, entities) {
     const crouchScale = ent.crouching ? 0.6 : 1.0;
     const spriteH = baseH * crouchScale;
     const spriteW = baseH * 0.7;
-    const remoteJumpOffset = (ent.jumpZ || 0) * 55 / Math.max(ent.dist, 0.3);
-    const spriteTop = RENDER_H / 2 + baseH / 2 - spriteH + bobOffset + player.pitch + wallOffset - remoteJumpOffset;
+
+    let spriteTop;
+    if (useMultiLevelSprites) {
+      const entFloorZ = ent.floorZ || 0;
+      const entFeetZ = entFloorZ;
+      const entHeadZ = entFloorZ + EYE_HEIGHT * 2 * crouchScale + (ent.jumpZ || 0);
+      const horizon = RENDER_H / 2 + player.pitch + bobOffset;
+      const feetScreenY = Math.floor(horizon - (entFeetZ - eyeZ) * (RENDER_H / ent.dist));
+      const headScreenY = Math.floor(horizon - (entHeadZ - eyeZ) * (RENDER_H / ent.dist));
+      spriteTop = headScreenY;
+    } else {
+      const remoteJumpOffset = (ent.jumpZ || 0) * 55 / Math.max(ent.dist, 0.3);
+      spriteTop = RENDER_H / 2 + baseH / 2 - spriteH + bobOffset + player.pitch + wallOffset - remoteJumpOffset;
+    }
 
     const spriteData = ent.spriteData;
     if (!spriteData) continue;
@@ -759,13 +1207,22 @@ function renderSprites(player, entities) {
     const brightness = 1 - fogFactor;
     const flashIntensity = ent.hitFlash > 0 ? Math.min(1, ent.hitFlash) : 0;
 
+    const usePerPixelDepth = useMultiLevelSprites && pixelDepthBuffer;
+
     for (let sx = startX; sx < endX; sx++) {
       if (sx < 0 || sx >= RENDER_W) continue;
-      if (ent.dist >= depthBuffer[sx]) continue;
+      // For flat maps, use column depth check to skip entire column
+      if (!usePerPixelDepth && ent.dist >= depthBuffer[sx]) continue;
       const texX = Math.floor(((sx - startX) / (endX - startX)) * 64);
       if (texX < 0 || texX >= 64) continue;
 
       for (let sy = startY; sy <= endY; sy++) {
+        // Per-pixel depth check for multi-level, column check for flat
+        if (usePerPixelDepth) {
+          if (pixelDepthBuffer[sy * RENDER_W + sx] <= ent.dist) continue;
+        } else if (ent.dist >= depthBuffer[sx]) {
+          continue;
+        }
         const texY = Math.floor(((sy - spriteTop) / spriteH) * 64);
         if (texY < 0 || texY >= 64) continue;
         const srcIdx = (texY * 64 + texX) * 4;
@@ -796,7 +1253,12 @@ function renderSprites(player, entities) {
         for (let fx = -flashRadius * 2; fx <= flashRadius * 2; fx++) {
           const fpx = flashCx + fx, fpy = flashCy + fy;
           if (fpx < 0 || fpx >= RENDER_W || fpy < 0 || fpy >= RENDER_H) continue;
-          if (ent.dist >= depthBuffer[fpx]) continue;
+          // Per-pixel depth check for muzzle flash too
+          if (usePerPixelDepth) {
+            if (pixelDepthBuffer[fpy * RENDER_W + fpx] <= ent.dist) continue;
+          } else if (ent.dist >= depthBuffer[fpx]) {
+            continue;
+          }
           const fd = Math.sqrt(fx * fx / 4 + fy * fy) / flashRadius;
           if (fd > 1) continue;
           const fa = flashAlpha * (1 - fd) * 0.8;
@@ -815,8 +1277,17 @@ function renderProjectiles(player, projectiles) {
   if (!frameImgData || projectiles.length === 0) return;
   const data = frameImgData.data;
   const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
-  const horizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
+
+  let projEyeZ, projHorizon;
+  if (multiLevel) {
+    const floorZ = player.floorZ || 0;
+    projEyeZ = floorZ + EYE_HEIGHT + player.jumpZ - player.crouchOffset * CROUCH_WORLD;
+    projHorizon = RENDER_H / 2 + player.pitch + bobOffset;
+  } else {
+    projEyeZ = 0;
+    const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
+    projHorizon = RENDER_H / 2 + player.pitch + bobOffset + wallOffset;
+  }
 
   for (const proj of projectiles) {
     const dx = proj.x - player.x;
@@ -830,7 +1301,12 @@ function renderProjectiles(player, projectiles) {
     if (Math.abs(angle) > HALF_FOV + 0.1) continue;
 
     const screenX = (RENDER_W / 2) + (angle / HALF_FOV) * (RENDER_W / 2);
-    const screenY = horizon;
+    let screenY;
+    if (multiLevel && proj.z !== undefined) {
+      screenY = projHorizon - (proj.z - projEyeZ) * (RENDER_H / dist);
+    } else {
+      screenY = projHorizon;
+    }
 
     // Trail tail position in screen space
     const trailWorldLen = 0.6;
@@ -849,10 +1325,12 @@ function renderProjectiles(player, projectiles) {
     const trailLen = Math.min(Math.abs(headX - tailSX), Math.floor(RENDER_H / dist * 0.6), 30);
     const dotSize = Math.max(1, Math.floor(2.5 / dist));
 
+    const projPerPixelDepth = multiLevel && pixelDepthBuffer;
+
     for (let t = 0; t <= trailLen + dotSize; t++) {
       const px = headX + t * (-trailDir);
       if (px < 0 || px >= RENDER_W) continue;
-      if (dist >= depthBuffer[px]) continue;
+      if (!projPerPixelDepth && dist >= depthBuffer[px]) continue;
 
       const isHead = t <= dotSize;
       const trailFade = isHead ? 1 : Math.max(0, 1 - (t - dotSize) / Math.max(1, trailLen));
@@ -860,6 +1338,11 @@ function renderProjectiles(player, projectiles) {
       for (let sy = -dotSize; sy <= dotSize; sy++) {
         const py = Math.floor(screenY) + sy;
         if (py < 0 || py >= RENDER_H) continue;
+        if (projPerPixelDepth) {
+          if (pixelDepthBuffer[py * RENDER_W + px] <= dist) continue;
+        } else if (dist >= depthBuffer[px]) {
+          continue;
+        }
 
         const vertFade = 1 - Math.abs(sy) / (dotSize + 1);
         const a = trailFade * vertFade;
@@ -1028,12 +1511,24 @@ function renderMinimap(player, mapEntities) {
   ctx.lineWidth = 1;
   ctx.strokeRect(ox - 2, oy - 2, MAP_W * size + 4, MAP_H * size + 4);
 
-  const wallColors = { 1: '#088', 2: '#800', 3: '#080', 4: '#860', 5: '#408', 6: '#068' };
+  const wallColors = { 1: '#088', 2: '#800', 3: '#080', 4: '#860', 5: '#408', 6: '#068', 12: '#654' };
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
-      if (MAP[y][x] > 0) {
-        ctx.fillStyle = wallColors[MAP[y][x]] || '#444';
+      const cell = MAP[y][x];
+      if (cell > 0) {
+        ctx.fillStyle = wallColors[cell] || '#444';
         ctx.fillRect(ox + x * size, oy + y * size, size, size);
+      } else if (multiLevel && HEIGHTMAP) {
+        // Color-code floor heights on empty cells
+        const h = HEIGHTMAP[y][x];
+        if (h > 0) {
+          const brightness = Math.min(1, h / 2.0);
+          const r = Math.floor(20 + brightness * 40);
+          const g = Math.floor(30 + brightness * 50);
+          const b = Math.floor(25 + brightness * 35);
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(ox + x * size, oy + y * size, size, size);
+        }
       }
     }
   }
@@ -1078,12 +1573,23 @@ function handleMovement(player, keys, dt, entities, masterVolume, jumpAudio) {
   // Wall collision with sliding (gap-aware for doors)
   const r = 0.2;
   let newX = player.x, newY = player.y;
-  const xCell = Math.floor(player.x + dx + Math.sign(dx) * r);
-  const yRow = Math.floor(player.y);
-  if (isCellPassable(xCell, yRow, player.y - yRow, r)) newX += dx;
-  const xCol = Math.floor(newX);
-  const yCell = Math.floor(newY + dy + Math.sign(dy) * r);
-  if (isCellPassable(xCol, yCell, newX - xCol, r)) newY += dy;
+  const fromFloorZ = multiLevel ? (player.floorZ || 0) : 0;
+
+  if (multiLevel) {
+    const xCell = Math.floor(player.x + dx + Math.sign(dx) * r);
+    const yRow = Math.floor(player.y);
+    if (isCellPassableWithHeight(xCell, yRow, player.y - yRow, r, fromFloorZ)) newX += dx;
+    const xCol = Math.floor(newX);
+    const yCell = Math.floor(newY + dy + Math.sign(dy) * r);
+    if (isCellPassableWithHeight(xCol, yCell, newX - xCol, r, fromFloorZ)) newY += dy;
+  } else {
+    const xCell = Math.floor(player.x + dx + Math.sign(dx) * r);
+    const yRow = Math.floor(player.y);
+    if (isCellPassable(xCell, yRow, player.y - yRow, r)) newX += dx;
+    const xCol = Math.floor(newX);
+    const yCell = Math.floor(newY + dy + Math.sign(dy) * r);
+    if (isCellPassable(xCol, yCell, newX - xCol, r)) newY += dy;
+  }
 
   // Entity collision (circle-vs-circle, slide around)
   const colR = 0.4;
@@ -1101,21 +1607,64 @@ function handleMovement(player, keys, dt, entities, masterVolume, jumpAudio) {
   player.x = newX;
   player.y = newY;
 
-  // Jump
-  if (keys['Space'] && player.onGround) {
-    player.jumpVel = 0.25;
-    player.onGround = false;
-    jumpAudio.currentTime = 0;
-    jumpAudio.volume = 0.5 * masterVolume;
-    jumpAudio.play().catch(() => {});
-  }
-  if (!player.onGround) {
-    player.jumpZ += player.jumpVel * dt;
-    player.jumpVel -= 0.010 * dt;
-    if (player.jumpZ <= 0) {
-      player.jumpZ = 0;
+  if (multiLevel) {
+    // Multi-level height physics
+    const currentCellFloor = getFloorHeight(Math.floor(newX), Math.floor(newY));
+    const oldFloorZ = player.floorZ || 0;
+
+    // Auto-step up small height differences
+    if (player.onGround && currentCellFloor > oldFloorZ && currentCellFloor - oldFloorZ <= STEP_HEIGHT) {
+      player.floorZ = currentCellFloor;
+    }
+    // Walk off ledge: start falling
+    else if (player.onGround && currentCellFloor < oldFloorZ) {
+      player.jumpZ = oldFloorZ - currentCellFloor;
       player.jumpVel = 0;
-      player.onGround = true;
+      player.onGround = false;
+      player.floorZ = currentCellFloor;
+    }
+    // If on ground, sync floorZ
+    else if (player.onGround) {
+      player.floorZ = currentCellFloor;
+    }
+
+    // Jump
+    if (keys['Space'] && player.onGround) {
+      player.jumpVel = JUMP_VEL_WORLD;
+      player.onGround = false;
+      jumpAudio.currentTime = 0;
+      jumpAudio.volume = 0.5 * masterVolume;
+      jumpAudio.play().catch(() => {});
+    }
+    if (!player.onGround) {
+      player.jumpZ += player.jumpVel * dt;
+      player.jumpVel -= GRAVITY_WORLD * dt;
+      // Check if landed
+      const groundLevel = getFloorHeight(Math.floor(newX), Math.floor(newY));
+      player.floorZ = groundLevel;
+      if (player.jumpZ <= 0) {
+        player.jumpZ = 0;
+        player.jumpVel = 0;
+        player.onGround = true;
+      }
+    }
+  } else {
+    // Legacy flat-map jump
+    if (keys['Space'] && player.onGround) {
+      player.jumpVel = 0.25;
+      player.onGround = false;
+      jumpAudio.currentTime = 0;
+      jumpAudio.volume = 0.5 * masterVolume;
+      jumpAudio.play().catch(() => {});
+    }
+    if (!player.onGround) {
+      player.jumpZ += player.jumpVel * dt;
+      player.jumpVel -= 0.010 * dt;
+      if (player.jumpZ <= 0) {
+        player.jumpZ = 0;
+        player.jumpVel = 0;
+        player.onGround = true;
+      }
     }
   }
 
@@ -1312,10 +1861,15 @@ window.Engine = {
   // Constants
   SCREEN_W, SCREEN_H, RENDER_W, RENDER_H, TEX_SIZE,
   FOV, HALF_FOV, NUM_RAYS, MAX_DEPTH, BASE_ROT_SPEED,
+  EYE_HEIGHT, JUMP_VEL_WORLD, GRAVITY_WORLD, STEP_HEIGHT,
+  CROUCH_WORLD, RAILING_HEIGHT, JUMP_LEGACY_SCALE,
   // MAP/MAP_W/MAP_H use getters so they reflect setMap() changes
   get MAP() { return MAP; },
   get MAP_W() { return MAP_W; },
   get MAP_H() { return MAP_H; },
+  get HEIGHTMAP() { return HEIGHTMAP; },
+  get CEILING_H() { return CEILING_H; },
+  get multiLevel() { return multiLevel; },
 
   // State accessors
   getRenderCtx: () => renderCtx,
@@ -1344,6 +1898,7 @@ window.Engine = {
   handleMovement,
   tickShootingVisuals,
   fireWeapon,
+  getFloorHeight,
 
   // Setup
   initPhaser,
@@ -1355,6 +1910,7 @@ window.Engine = {
   findNearbyDoor,
   isDoorPosition,
   isCellPassable,
+  isCellPassableWithHeight,
   isDoorGap,
   setDoorState,
   updateDoorAnimations,

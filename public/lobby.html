@@ -657,6 +657,8 @@ socket.on('game:starting', (data) => {
   sessionStorage.setItem('tp_mapGrid', JSON.stringify(data.mapGrid));
   sessionStorage.setItem('tp_mapWidth', String(data.mapWidth));
   sessionStorage.setItem('tp_mapHeight', String(data.mapHeight));
+  if (data.heightMap) sessionStorage.setItem('tp_heightMap', JSON.stringify(data.heightMap));
+  if (data.ceilingH) sessionStorage.setItem('tp_ceilingH', String(data.ceilingH));
   window.location.href = '/mp-game.html';
 });
 
@@ -736,6 +738,7 @@ function renderCreateForm() {
       '<div class="mode-options" id="map-options">' +
         '<div class="mode-option selected" data-map="test-arena" onclick="selectMap(this)">Test Arena</div>' +
         '<div class="mode-option" data-map="the-cage" onclick="selectMap(this)">The Cage</div>' +
+        '<div class="mode-option" data-map="the-spire" onclick="selectMap(this)">The Spire</div>' +
       '</div>' +
       '<div class="ff-toggle hidden" id="ff-toggle">' +
         '<input type="checkbox" id="ff-check">' +

@@ -376,6 +376,8 @@ const friendlyFire = sessionStorage.getItem('tp_friendlyFire') === '1';
 const mapGrid = JSON.parse(sessionStorage.getItem('tp_mapGrid') || 'null');
 const mapWidth = parseInt(sessionStorage.getItem('tp_mapWidth') || '0');
 const mapHeight = parseInt(sessionStorage.getItem('tp_mapHeight') || '0');
+const heightMap = JSON.parse(sessionStorage.getItem('tp_heightMap') || 'null');
+const ceilingH = parseFloat(sessionStorage.getItem('tp_ceilingH') || '0') || null;
 
 if (!token || !mpUsername || !gameId || !spawnData) {
   window.location.href = '/lobby.html';
@@ -383,7 +385,7 @@ if (!token || !mpUsername || !gameId || !spawnData) {
 
 // Load map into engine
 if (mapGrid && mapWidth && mapHeight) {
-  E.setMap(mapGrid, mapWidth, mapHeight);
+  E.setMap(mapGrid, mapWidth, mapHeight, heightMap, ceilingH);
 }
 
 sessionStorage.removeItem('tp_gameId');
@@ -393,6 +395,8 @@ sessionStorage.removeItem('tp_friendlyFire');
 sessionStorage.removeItem('tp_mapGrid');
 sessionStorage.removeItem('tp_mapWidth');
 sessionStorage.removeItem('tp_mapHeight');
+sessionStorage.removeItem('tp_heightMap');
+sessionStorage.removeItem('tp_ceilingH');
 
 // ========================================
 // Player colors
@@ -426,6 +430,7 @@ const player = {
   alive: true,
   jumpZ: 0, jumpVel: 0, onGround: true,
   crouching: false, crouchOffset: 0,
+  floorZ: mySpawn.z || 0,
 };
 
 // ========================================
@@ -465,6 +470,7 @@ for (const [name, sd] of Object.entries(spawnData)) {
     muzzleFlash: 0,
     crouching: false,
     jumpZ: 0, targetJumpZ: 0,
+    floorZ: sd.z || 0, targetFloorZ: sd.z || 0,
     moving: false,
     onGround: true, wasOnGround: true,
   });
@@ -736,8 +742,9 @@ function interpolateRemotePlayers(dt) {
 
     // Angle always uses exponential smoothing (handles wrap-around)
     rp.angle = E.smoothLerpAngle(rp.angle, rp.targetAngle, INTERP_SMOOTHING, dt);
-    // Jump uses exponential smoothing
+    // Jump and floor height use exponential smoothing
     rp.jumpZ = E.smoothLerp(rp.jumpZ, rp.targetJumpZ, INTERP_SMOOTHING, dt);
+    rp.floorZ = E.smoothLerp(rp.floorZ, rp.targetFloorZ, INTERP_SMOOTHING, dt);
 
     if (rp.hitFlash > 0) rp.hitFlash -= dt;
     if (rp.muzzleFlash > 0) rp.muzzleFlash -= dt;
@@ -824,8 +831,8 @@ function gameUpdate(time, delta) {
 // ========================================
 const projectiles = [];
 
-function spawnProjectile(x, y, angle) {
-  projectiles.push({ x, y, angle, speed: 1.5, life: 40 });
+function spawnProjectile(x, y, angle, z, vz) {
+  projectiles.push({ x, y, angle, speed: 1.5, life: 40, z: z !== undefined ? z : 0, vz: vz || 0 });
 }
 
 function updateProjectiles(dt) {
@@ -833,6 +840,7 @@ function updateProjectiles(dt) {
     const p = projectiles[i];
     p.x += Math.cos(p.angle) * p.speed * dt;
     p.y += Math.sin(p.angle) * p.speed * dt;
+    if (p.vz) p.z += p.vz * p.speed * dt;
     p.life -= dt;
     const mx = Math.floor(p.x), my = Math.floor(p.y);
     if (mx < 0 || mx >= E.MAP_W || my < 0 || my >= E.MAP_H || p.life <= 0) {
@@ -861,13 +869,17 @@ function handleShooting(dt) {
   if (player.shooting && player.shootTimer <= 0 && player.ammo > 0) {
     E.fireWeapon(player, shootAudio, masterVolume);
 
-    // Spawn visible tracer projectile (with spread)
+    // Spawn visible tracer projectile (with spread + z-axis)
     const spreadAngle = (Math.random() - 0.5) * (player.spread || 0) * 0.015;
     const spawnDist = 0.5;
+    const projEyeZ = (player.floorZ || 0) + E.EYE_HEIGHT + player.jumpZ - player.crouchOffset * E.CROUCH_WORLD;
+    const pitchSlope = player.pitch / E.RENDER_H; // vertical aim slope
     spawnProjectile(
       player.x + Math.cos(player.angle) * spawnDist,
       player.y + Math.sin(player.angle) * spawnDist,
-      player.angle + spreadAngle
+      player.angle + spreadAngle,
+      projEyeZ,
+      pitchSlope
     );
 
     // Notify other players of the shot (for audio + muzzle flash)
@@ -888,7 +900,17 @@ function castHitscan() {
   const cx = E.RENDER_W / 2 + (Math.random() - 0.5) * spread * 3;
   const cy = E.RENDER_H / 2 + (Math.random() - 0.5) * spread * 3;
   const bobOffset = Math.sin(player.bobPhase) * 2 * player.bobAmount;
-  const wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
+
+  const useML = E.multiLevel;
+  let eyeZ, wallOffset;
+  if (useML) {
+    const floorZ = player.floorZ || 0;
+    eyeZ = floorZ + E.EYE_HEIGHT + player.jumpZ - player.crouchOffset * E.CROUCH_WORLD;
+    wallOffset = 0;
+  } else {
+    eyeZ = 0;
+    wallOffset = player.jumpZ * 55 - player.crouchOffset * 25;
+  }
 
   for (const [name, rp] of remotePlayers) {
     if (!rp.alive) continue;
@@ -906,14 +928,28 @@ function castHitscan() {
       if (cx >= screenX - halfW && cx <= screenX + halfW && dist < closestDist) {
         const crouchScale = rp.crouching ? 0.6 : 1.0;
         const spriteH = baseH * crouchScale;
-        const remoteJumpOffset = rp.jumpZ * 55 / Math.max(dist, 0.3);
-        const spriteBottom = cy + baseH / 2 + bobOffset + player.pitch + wallOffset - remoteJumpOffset;
-        const spriteTop = spriteBottom - spriteH;
+
+        let spriteTop, spriteBottom;
+        if (useML) {
+          const entFloorZ = rp.floorZ || 0;
+          const entFeetZ = entFloorZ;
+          const entHeadZ = entFloorZ + E.EYE_HEIGHT * 2 * crouchScale + (rp.jumpZ || 0);
+          const horizon = E.RENDER_H / 2 + player.pitch + bobOffset;
+          spriteBottom = Math.floor(horizon - (entFeetZ - eyeZ) * (E.RENDER_H / dist));
+          spriteTop = Math.floor(horizon - (entHeadZ - eyeZ) * (E.RENDER_H / dist));
+        } else {
+          const remoteJumpOffset = rp.jumpZ * 55 / Math.max(dist, 0.3);
+          spriteBottom = cy + baseH / 2 + bobOffset + player.pitch + wallOffset - remoteJumpOffset;
+          spriteTop = spriteBottom - spriteH;
+        }
 
         if (cy >= spriteTop && cy <= spriteBottom) {
-          if (E.hasLineOfSight(player.x, player.y, rp.x, rp.y)) {
+          // Height-aware LOS for multi-level
+          const shooterZ = useML ? eyeZ : undefined;
+          const targetZ = useML ? ((rp.floorZ || 0) + E.EYE_HEIGHT) : undefined;
+          if (E.hasLineOfSight(player.x, player.y, rp.x, rp.y, shooterZ, targetZ)) {
             closestDist = dist;
-            const headBoundary = spriteTop + spriteH * 0.25;
+            const headBoundary = spriteTop + (spriteBottom - spriteTop) * 0.25;
             closest = { username: name, dist, headshot: cy < headBoundary };
           }
         }
@@ -943,6 +979,7 @@ function buildRemotePlayerEntities() {
       hitFlash: rp.hitFlash > 0 ? Math.min(1, rp.hitFlash / 5) : 0,
       muzzleFlash: rp.muzzleFlash > 0 ? rp.muzzleFlash : 0,
       jumpZ: rp.jumpZ,
+      floorZ: rp.floorZ,
       crouching: rp.crouching,
     });
   }
@@ -1129,6 +1166,7 @@ socket.on('game:go', () => {
       angle: Math.round(player.angle * 1000) / 1000,
       crouching: player.crouching,
       jumpZ: Math.round(player.jumpZ * 100) / 100,
+      floorZ: Math.round((player.floorZ || 0) * 100) / 100,
       moving: player.moving,
       onGround: player.onGround,
     };
@@ -1144,6 +1182,7 @@ socket.on('game:go', () => {
         newState.y === lastSentState.y &&
         newState.angle === lastSentState.angle &&
         newState.jumpZ === lastSentState.jumpZ &&
+        newState.floorZ === lastSentState.floorZ &&
         flags === lastSentState.flags) {
       return;
     }
@@ -1158,6 +1197,7 @@ socket.on('game:go', () => {
       angle: newState.angle,
       crouching: newState.crouching,
       jumpZ: newState.jumpZ,
+      floorZ: newState.floorZ,
       moving: newState.moving,
       onGround: newState.onGround,
     });
@@ -1203,6 +1243,7 @@ socket.on('game:playerState', (data) => {
   rp.health = data.health;
   rp.crouching = !!data.crouching;
   rp.targetJumpZ = typeof data.jumpZ === 'number' ? data.jumpZ : 0;
+  rp.targetFloorZ = typeof data.floorZ === 'number' ? data.floorZ : 0;
   rp.moving = !!data.moving;
   rp.onGround = !!data.onGround;
 });
@@ -1215,11 +1256,14 @@ socket.on('game:playerFire', (data) => {
   // Muzzle flash on their sprite
   rp.muzzleFlash = 4;
 
-  // Spawn visible tracer from their position
+  // Spawn visible tracer from their position (at their eye height)
+  const rpEyeZ = (rp.floorZ || 0) + E.EYE_HEIGHT;
   spawnProjectile(
     rp.x + Math.cos(rp.angle) * 0.5,
     rp.y + Math.sin(rp.angle) * 0.5,
-    rp.angle
+    rp.angle,
+    rpEyeZ,
+    0 // no pitch info for remote players
   );
 
   // Remote audio
@@ -1339,6 +1383,8 @@ socket.on('game:rematchStarting', (data) => {
   sessionStorage.setItem('tp_mapGrid', JSON.stringify(data.mapGrid));
   sessionStorage.setItem('tp_mapWidth', String(data.mapWidth));
   sessionStorage.setItem('tp_mapHeight', String(data.mapHeight));
+  if (data.heightMap) sessionStorage.setItem('tp_heightMap', JSON.stringify(data.heightMap));
+  if (data.ceilingH) sessionStorage.setItem('tp_ceilingH', String(data.ceilingH));
   window.location.href = '/mp-game.html';
 });
 </script>

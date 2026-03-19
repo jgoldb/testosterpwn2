@@ -71,6 +71,75 @@ const MAPS = {
     ],
   },
 
+  'the-spire': {
+    name: 'The Spire',
+    width: 24,
+    height: 24,
+    // Layout: L0 (south, h=0), L1 (center, h=1.0), L2 (north small, h=2.0)
+    // West/east staircases connect L0-L1, center staircase connects L1-L2
+    // South edge of L1: railings on sides, open ledge in center (can fall)
+    grid: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], // 0 border
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 1 L2/L1
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 2 L2/L1
+      [1,0,0,0,0,0,0,0,7,7,7,0,0,7,7,7,0,0,0,0,0,0,0,1], // 3 wall barrier L1-L2 (gap at 11-12 for stairs)
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 4 L1 + stairs at 11-12
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 5 L1 + stairs at 11-12
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 6 L1
+      [1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,0,5,5,0,0,0,0,0,1], // 7 L1 cover
+      [1,0,0,0,0,0,5,0,0,0,0,0,0,0,0,0,0,5,0,0,0,0,0,1], // 8 L1 cover
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 9 L1
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 10 L1
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 11 L1
+      [1,0,0,0,12,12,12,12,0,0,0,0,0,0,0,0,12,12,12,12,0,0,0,1], // 12 L1 south edge: railings + open ledge center
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 13 transition (stairs at 2-3, 20-21)
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 14 stairs
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 15 stairs
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 16 stairs
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 17 L0
+      [1,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,1], // 18 L0 cover
+      [1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,1], // 19 L0 cover
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 20 L0
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 21 L0
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 22 L0
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], // 23 border
+    ],
+    heightMap: [
+      //0   1   2   3   4   5   6   7   8   9  10  11    12  13  14  15  16  17  18  19  20  21  22  23
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0  ], // 0 border
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,    2,  2,  2,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 1 L1 + L2 cols 9-14
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,    2,  2,  2,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 2 L1 + L2 cols 9-14
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1.75, 1.75,1, 1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 3 barrier + stairs 11-12
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1.5,  1.5, 1, 1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 4 stairs 11-12
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1.25, 1.25,1, 1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 5 stairs 11-12
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 6 L1
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 7 L1
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 8 L1
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 9 L1
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 10 L1
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 11 L1
+      [0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0  ], // 12 L1 (railings + open ledge)
+      [0,  0,  1,  1,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  0,  0  ], // 13 stair tops at 2-3,20-21
+      [0,  0,  .75,.75,0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  .75,.75,0,  0  ], // 14 stairs
+      [0,  0,  .5, .5, 0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  .5, .5, 0,  0  ], // 15 stairs
+      [0,  0,  .25,.25,0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  .25,.25,0,  0  ], // 16 stairs
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0  ], // 17 L0
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0  ], // 18 L0
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0  ], // 19 L0
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0  ], // 20 L0
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0  ], // 21 L0
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0  ], // 22 L0
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0  ], // 23 border
+    ],
+    ceilingH: 3.0,
+    spawns: [
+      { x: 2.5, y: 20.5, angle: Math.PI / 4, z: 0 },           // L0 SW courtyard
+      { x: 21.5, y: 20.5, angle: (3 * Math.PI) / 4, z: 0 },    // L0 SE courtyard
+      { x: 12.5, y: 9.5, angle: -Math.PI / 2, z: 1.0 },        // L1 center platform
+      { x: 12.5, y: 1.5, angle: Math.PI / 2, z: 2.0 },         // L2 sniper nest
+    ],
+  },
+
   'the-cage': {
     name: 'The Cage',
     width: 32,
@@ -252,18 +321,30 @@ function findGameForPlayer(username) {
   return null;
 }
 
-function hasLineOfSight(mapGrid, mapW, mapH, x0, y0, x1, y1) {
+function hasLineOfSight(mapGrid, mapW, mapH, x0, y0, x1, y1, z0, z1, heightMap) {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const dist = Math.sqrt(dx * dx + dy * dy);
   const steps = Math.ceil(dist * 4);
+  const hasZ = z0 !== undefined && z1 !== undefined && heightMap;
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
     const mx = Math.floor(x0 + dx * t);
     const my = Math.floor(y0 + dy * t);
     if (mx < 0 || mx >= mapW || my < 0 || my >= mapH) return false;
     const tile = mapGrid[my][mx];
-    if (tile > 0 && tile !== 11) return false; // windows don't block LOS
+    if (tile === 0 || tile === 11) continue; // empty/windows don't block
+    if (tile === 12) {
+      // Railing: check if LOS passes above it
+      if (hasZ) {
+        const railFloor = heightMap[my][mx];
+        const railTop = railFloor + 0.5;
+        const zAtPoint = z0 + (z1 - z0) * t;
+        if (zAtPoint > railTop) continue;
+      }
+      continue; // railings don't block LOS (can shoot over)
+    }
+    if (tile > 0) return false;
   }
   return true;
 }
@@ -384,6 +465,7 @@ io.on('connection', (socket) => {
       playerData.angle = data.angle;
       playerData.crouching = !!data.crouching;
       playerData.jumpZ = typeof data.jumpZ === 'number' ? Math.max(0, data.jumpZ) : 0;
+      playerData.floorZ = typeof data.floorZ === 'number' ? Math.max(0, data.floorZ) : 0;
       playerData.moving = !!data.moving;
       playerData.onGround = !!data.onGround;
 
@@ -395,6 +477,7 @@ io.on('connection', (socket) => {
         health: playerData.health,
         crouching: playerData.crouching,
         jumpZ: playerData.jumpZ,
+        floorZ: playerData.floorZ,
         moving: playerData.moving,
         onGround: playerData.onGround,
       });
@@ -460,7 +543,11 @@ io.on('connection', (socket) => {
       const dy = target.y - playerData.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > 30) return; // max render distance
-      if (!hasLineOfSight(game.mapGrid, game.mapW, game.mapH, playerData.x, playerData.y, target.x, target.y)) return;
+      // Height-aware LOS for multi-level maps
+      const mapDef = MAPS[game.mapId];
+      const shooterZ = (playerData.floorZ || 0) + 0.5;
+      const targetZ = (target.floorZ || 0) + 0.5;
+      if (!hasLineOfSight(game.mapGrid, game.mapW, game.mapH, playerData.x, playerData.y, target.x, target.y, shooterZ, targetZ, mapDef.heightMap)) return;
 
       // Apply damage (headshots deal double)
       const headshot = !!data.headshot;
@@ -567,6 +654,7 @@ io.on('connection', (socket) => {
             spawn: null,
             crouching: false,
             jumpZ: 0,
+            floorZ: 0,
           });
         }
 
@@ -576,6 +664,7 @@ io.on('connection', (socket) => {
           p.x = p.spawn.x;
           p.y = p.spawn.y;
           p.angle = p.spawn.angle;
+          p.floorZ = p.spawn.z || 0;
         }
 
         games.set(newGame.id, newGame);
@@ -589,6 +678,7 @@ io.on('connection', (socket) => {
             y: p.spawn.y,
             angle: p.spawn.angle,
             team: p.team,
+            z: p.spawn.z || 0,
           };
         }
 
@@ -602,6 +692,8 @@ io.on('connection', (socket) => {
           mapGrid: rematchStartMapDef.grid,
           mapWidth: rematchStartMapDef.width,
           mapHeight: rematchStartMapDef.height,
+          heightMap: rematchStartMapDef.heightMap || null,
+          ceilingH: rematchStartMapDef.ceilingH || null,
         };
 
         io.to(roomName).emit('game:rematchStarting', startPayload);
@@ -757,6 +849,7 @@ io.on('connection', (socket) => {
       spawn: null,
       crouching: false,
       jumpZ: 0,
+      floorZ: 0,
     });
 
     games.set(game.id, game);
@@ -786,6 +879,7 @@ io.on('connection', (socket) => {
       spawn: null,
       crouching: false,
       jumpZ: 0,
+      floorZ: 0,
     });
 
     // Notify all lobby users about the update
@@ -848,6 +942,7 @@ io.on('connection', (socket) => {
       p.x = p.spawn.x;
       p.y = p.spawn.y;
       p.angle = p.spawn.angle;
+      p.floorZ = p.spawn.z || 0;
     }
 
     game.status = 'starting';
@@ -860,6 +955,7 @@ io.on('connection', (socket) => {
         y: p.spawn.y,
         angle: p.spawn.angle,
         team: p.team,
+        z: p.spawn.z || 0,
       };
     }
 
@@ -874,6 +970,8 @@ io.on('connection', (socket) => {
       mapGrid: mapDef.grid,
       mapWidth: mapDef.width,
       mapHeight: mapDef.height,
+      heightMap: mapDef.heightMap || null,
+      ceilingH: mapDef.ceilingH || null,
     };
     for (const [username] of game.players) {
       emitToUser(username, 'game:starting', startingPayload);

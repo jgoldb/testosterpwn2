@@ -434,8 +434,8 @@ document.getElementById('start-btn').addEventListener('click', () => {
 // ---- Projectile System ----
 const projectiles = [];
 
-function spawnProjectile(x, y, angle) {
-  projectiles.push({ x, y, angle, speed: 1.5, life: 40 });
+function spawnProjectile(x, y, angle, z, vz) {
+  projectiles.push({ x, y, angle, speed: 1.5, life: 40, z: z !== undefined ? z : 0, vz: vz || 0 });
 }
 
 function updateProjectiles(dt) {
@@ -443,6 +443,7 @@ function updateProjectiles(dt) {
     const p = projectiles[i];
     p.x += Math.cos(p.angle) * p.speed * dt;
     p.y += Math.sin(p.angle) * p.speed * dt;
+    if (p.vz) p.z += p.vz * p.speed * dt;
     p.life -= dt;
     const mx = Math.floor(p.x), my = Math.floor(p.y);
     if (mx < 0 || mx >= E.MAP_W || my < 0 || my >= E.MAP_H || p.life <= 0) {
@@ -505,10 +506,14 @@ function handleShooting(dt) {
     E.fireWeapon(player, shootAudio, masterVolume);
 
     const spreadAngle = (Math.random() - 0.5) * (player.spread || 0) * 0.015;
+    const projEyeZ = (player.floorZ || 0) + E.EYE_HEIGHT + player.jumpZ - player.crouchOffset * E.CROUCH_WORLD;
+    const pitchSlope = player.pitch / E.RENDER_H;
     spawnProjectile(
       player.x + Math.cos(player.angle) * 0.5,
       player.y + Math.sin(player.angle) * 0.5,
-      player.angle + spreadAngle
+      player.angle + spreadAngle,
+      projEyeZ,
+      pitchSlope
     );
 
     const hit = castHitscan();
